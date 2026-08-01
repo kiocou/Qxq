@@ -3,9 +3,9 @@
 	"identifier": "com.chao.snowshot",
 	"plugins": {
 		"updater": {
-			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGODlCOTdFOUU2RjZDMQpSV1RCOXVicGw1djRCZE4waUVoR2lCU2xxYWlvMUhDUTFTR2VXZmFyWmVZMXBxRy9vV1BHQXBBdwo=",
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ1MDAwNDg3MzU0M0RDRjAKUldUdzNFTTFod1FBMVlXQjRUT2thcmgxL2NVa0daWGl0RVdJTGZKaHd6QTE5NUFWcHg5WjBiUFIK",
 			"endpoints": [
-				"https://github.com/mg-chao/snow-shot/releases/latest/download/latest.json"
+				"https://github.com/kiocou/Qxq/releases/latest/download/latest.json"
 			],
 			"windows": {
 				"installMode": "passive"
