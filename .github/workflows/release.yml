@@ -318,11 +318,11 @@ jobs:
               id: asset_pattern
               run: |
                   if [ "${{ matrix.fixedRuntime }}" = "true" ]; then
-                    echo "pattern=Snow Shot_[version]_[platform]-[arch]_webview[_setup][ext]" >> $GITHUB_OUTPUT
+                    echo "pattern=Qxq_[version]_[platform]-[arch]_webview[_setup][ext]" >> $GITHUB_OUTPUT
                   elif [ "${{ matrix.offline }}" = "true" ]; then
-                    echo "pattern=Snow Shot_[version]_[platform]-[arch]_offline[_setup][ext]" >> $GITHUB_OUTPUT
+                    echo "pattern=Qxq_[version]_[platform]-[arch]_offline[_setup][ext]" >> $GITHUB_OUTPUT
                   else
-                    echo "pattern=Snow Shot_[version]_[platform]-[arch][_setup][ext]" >> $GITHUB_OUTPUT
+                    echo "pattern=Qxq_[version]_[platform]-[arch][_setup][ext]" >> $GITHUB_OUTPUT
                   fi
               shell: bash
 
@@ -337,7 +337,7 @@ jobs:
                   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
               with:
                   tagName: ${{ needs.create-release.outputs.app_version }}
-                  releaseName: Snow Shot ${{ needs.create-release.outputs.app_version }}
+                  releaseName: Qxq ${{ needs.create-release.outputs.app_version }}
                   assetNamePattern: ${{ steps.asset_pattern.outputs.pattern }}
                   releaseBody: ""
                   releaseDraft: true
@@ -376,7 +376,7 @@ jobs:
               uses: softprops/action-gh-release@v2
               with:
                   tag_name: ${{ env.TAG_NAME }}
-                  name: "Snow Shot ${{ env.TAG_NAME }}"
+                  name: "Qxq ${{ env.TAG_NAME }}"
                   body_path: release_notes.md
                   draft: false
                   prerelease: false
