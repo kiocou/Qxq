@@ -179,16 +179,19 @@ export const ThemeSkin = () => {
                     .ant-app .menu-layout-wrap .ant-layout-header {
                         background-color: ${levelOneBackgroundColor} !important;
                         backdrop-filter: blur(${maskBlur}px);
+                        transform: translateZ(0);
                     }
 
                     .ant-app .menu-layout-wrap .ant-layout-sider {
                         background-color: ${siderMenuBackgroundColor};
                         backdrop-filter: blur(${maskBlur}px);
+                        transform: translateZ(0);
                     }
 
                     .ant-app .menu-layout-wrap .content-wrap>.center {
                         background-color: ${levelOneBackgroundColor} !important;
                         backdrop-filter: blur(${maskBlur}px);
+                        transform: translateZ(0);
                     }
 
                     .ant-app .menu-layout-wrap .ant-layout-sider .menu-sider-wrap .ant-menu.ant-menu-root {

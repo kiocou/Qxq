@@ -15,7 +15,13 @@ export default defineConfig({
 	},
 	performance: {
 		chunkSplit: {
-			strategy: "split-by-module",
+			// split-by-module 在 dev 下会给懒加载路由产生未注册 factory 的 chunk，
+			// 表现为 "factory is undefined"，直接让 /draw 等页面加载失败。
+			// 仅生产构建启用该策略。
+			strategy:
+				process.env.NODE_ENV === "production"
+					? "split-by-module"
+					: "split-by-experience",
 		},
 	},
 	html: {

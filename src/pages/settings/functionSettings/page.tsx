@@ -25,14 +25,7 @@ import {
 	theme,
 } from "antd";
 import type { AggregationColor } from "antd/es/color-picker/color";
-import {
-	useCallback,
-	useContext,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 import { videoRecordGetMicrophoneDeviceNames } from "@/commands/videoRecord";
 import { ContentWrap } from "@/components/contentWrap";
@@ -57,7 +50,10 @@ import { AppSettingsActionContext } from "@/contexts/appSettingsActionContext";
 import { usePluginServiceContext } from "@/contexts/pluginServiceContext";
 import { useAppSettingsLoad } from "@/hooks/useAppSettingsLoad";
 import { usePlatform } from "@/hooks/usePlatform";
-import { useVisionModelList } from "@/pages/fixedContent/components/ocrResult";
+import {
+	useVisionModelList,
+	type VisionModel,
+} from "@/pages/fixedContent/components/ocrResult";
 import {
 	type AppSettingsData,
 	AppSettingsFixedContentInitialPosition,
@@ -82,6 +78,16 @@ import {
 } from "@/utils/file";
 import { TestChat } from "./components/testChat";
 import { TranslationConfig } from "./components/translationConfig";
+
+/** 模块级缓存：避免每次进入功能设置页重新枚举系统麦克风 */
+let cachedMicrophoneDeviceNameOptions:
+	| {
+			locale: string;
+			options: { label: string; value: string }[];
+	  }
+	| undefined;
+/** 模块级缓存：视觉模型列表与语言无关 */
+let cachedVisionModelList: VisionModel[] | undefined;
 
 export const FunctionSettingsPage = () => {
 	const intl = useIntl();
@@ -259,7 +265,11 @@ export const FunctionSettingsPage = () => {
 	);
 
 	const [microphoneDeviceNameOptions, setMicrophoneDeviceNameOptions] =
-		useState<{ label: string; value: string }[]>([]);
+		useState<{ label: string; value: string }[]>(
+			cachedMicrophoneDeviceNameOptions?.locale === intl.locale
+				? cachedMicrophoneDeviceNameOptions.options
+				: [],
+		);
 
 	const [currentPlatform] = usePlatform();
 
@@ -284,17 +294,16 @@ export const FunctionSettingsPage = () => {
 
 	const { isReadyStatus } = usePluginServiceContext();
 
-	const initedMicrophoneDeviceNameOptions = useRef(false);
 	useEffect(() => {
-		if (initedMicrophoneDeviceNameOptions.current) {
+		// 语言未变时直接复用缓存，避免每次进入设置页重新枚举系统麦克风
+		if (cachedMicrophoneDeviceNameOptions?.locale === intl.locale) {
+			setMicrophoneDeviceNameOptions(cachedMicrophoneDeviceNameOptions.options);
 			return;
 		}
 
 		if (!isReadyStatus?.(PLUGIN_ID_FFMPEG)) {
 			return;
 		}
-
-		initedMicrophoneDeviceNameOptions.current = true;
 
 		const options: { label: string; value: string }[] = [
 			{
@@ -315,6 +324,10 @@ export const FunctionSettingsPage = () => {
 				}
 			})
 			.finally(() => {
+				cachedMicrophoneDeviceNameOptions = {
+					locale: intl.locale,
+					options,
+				};
 				setMicrophoneDeviceNameOptions(options);
 			});
 	}, [formatMicrophoneDeviceName, intl, isReadyStatus]);
@@ -640,7 +653,9 @@ export const FunctionSettingsPage = () => {
 		SelectProps["options"]
 	>([]);
 	useEffect(() => {
-		getVisionModelList().then((visionModelList) => {
+		const buildHtmlVisionModelOptions = (
+			visionModelList: Awaited<ReturnType<typeof getVisionModelList>>,
+		) => {
 			const officialVisionModelList = visionModelList.filter(
 				(model) => model.isOfficial,
 			);
@@ -648,7 +663,7 @@ export const FunctionSettingsPage = () => {
 				(model) => !model.isOfficial,
 			);
 
-			const htmlVisionModelOptions = [
+			return [
 				{
 					label: (
 						<IconLabel
@@ -683,8 +698,19 @@ export const FunctionSettingsPage = () => {
 						}
 					: undefined,
 			].filter(Boolean) as SelectProps["options"];
+		};
 
-			setHtmlVisionModelOptions(htmlVisionModelOptions);
+		// 模型列表与语言无关，模块级缓存避免每次挂载重新拉取
+		if (cachedVisionModelList) {
+			setHtmlVisionModelOptions(
+				buildHtmlVisionModelOptions(cachedVisionModelList),
+			);
+			return;
+		}
+
+		getVisionModelList().then((visionModelList) => {
+			cachedVisionModelList = visionModelList;
+			setHtmlVisionModelOptions(buildHtmlVisionModelOptions(visionModelList));
 		});
 	}, [getVisionModelList, intl]);
 

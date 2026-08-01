@@ -1,7 +1,7 @@
 import { EllipsisOutlined } from "@ant-design/icons";
 import * as dialog from "@tauri-apps/plugin-dialog";
 import { Button, Input } from "antd";
-import { useCallback } from "react";
+import { memo, useCallback } from "react";
 
 export const PathInput: React.FC<{
 	value?: string;
@@ -38,3 +38,5 @@ export const PathInput: React.FC<{
 		/>
 	);
 };
+
+export default memo(PathInput);

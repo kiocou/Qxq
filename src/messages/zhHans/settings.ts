@@ -172,7 +172,7 @@ export const settings = {
 		"请输入 API 模型",
 	"settings.functionSettings.chatSettings.apiConfig.modelName": "模型名称",
 	"settings.functionSettings.chatSettings.apiConfig.modelName.tip":
-		"模型名称用于 Snow Shot 的展示",
+		"模型名称用于 Qxq 的展示",
 	"settings.functionSettings.chatSettings.apiConfig.modelName.required":
 		"请输入模型名称",
 	"settings.functionSettings.chatSettings.apiConfig.supportThinking":
@@ -497,7 +497,7 @@ export const settings = {
 	"settings.systemSettings.screenshotSettings.tryGetElementByFocus":
 		"选取窗口元素增强",
 	"settings.systemSettings.screenshotSettings.tryGetElementByFocus.tip":
-		"启用后将为尝试选取的窗口元素提供焦点，以修复诸如浏览器等程序在无焦点时无法选取窗口元素的问题。当窗口堆叠排列的情况复杂时，底部窗口获取焦点后将遮挡顶部窗口，Snow Shot 会尝试恢复窗口的层级，如影响使用请禁用该功能。\n 白名单程序：{whiteList}",
+		"启用后将为尝试选取的窗口元素提供焦点，以修复诸如浏览器等程序在无焦点时无法选取窗口元素的问题。当窗口堆叠排列的情况复杂时，底部窗口获取焦点后将遮挡顶部窗口，Qxq 会尝试恢复窗口的层级，如影响使用请禁用该功能。\n 白名单程序：{whiteList}",
 	"settings.systemSettings.screenshotSettings.tryGetElementByFocus.never":
 		"禁用",
 	"settings.systemSettings.screenshotSettings.tryGetElementByFocus.firefox":

@@ -1,5 +1,5 @@
 export const about = {
-	"about.title": "Snow Shot",
+	"about.title": "Qxq",
 	"about.subtitle": "简单优雅的工具软件 ❄️",
 	"about.version": "版本",
 	"about.author": "作者: mg-chao",

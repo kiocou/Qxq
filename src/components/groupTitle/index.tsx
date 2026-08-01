@@ -1,4 +1,5 @@
 import { Typography, theme } from "antd";
+import { memo } from "react";
 
 export const GroupTitle: React.FC<{
 	children: React.ReactNode;
@@ -40,3 +41,5 @@ export const SubGroupTitle: React.FC<{
 		</Typography.Title>
 	);
 };
+
+export default memo(GroupTitle);

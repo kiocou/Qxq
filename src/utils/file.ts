@@ -18,7 +18,7 @@ const parseTemplate = (template: string): string => {
 
 /**
  * 生成图片文件名
- * @param format 格式模板，例如 "SnowShot_{YYYY-MM-DD_HH-mm-ss}"
+ * @param format 格式模板，例如 "Qxq_{YYYY-MM-DD_HH-mm-ss}"
  * @returns 生成的文件名
  */
 export const generateImageFileName = (format: string) => {
@@ -72,7 +72,7 @@ export const getImageSaveDirectory = async (appSettings: AppSettingsData) => {
 		appSettings[AppSettingsGroup.FunctionScreenshot].saveFileDirectory;
 
 	if (!savePath) {
-		savePath = await joinPath(await pictureDir(), "Snow Shot");
+		savePath = await joinPath(await pictureDir(), "Qxq");
 	}
 
 	return savePath;
@@ -208,7 +208,7 @@ export const getVideoRecordSaveDirectory = async (
 		appSettings[AppSettingsGroup.FunctionVideoRecord].saveDirectory;
 
 	if (!savePath) {
-		savePath = await joinPath(await videoDir(), "Snow Shot");
+		savePath = await joinPath(await videoDir(), "Qxq");
 	}
 
 	return savePath;

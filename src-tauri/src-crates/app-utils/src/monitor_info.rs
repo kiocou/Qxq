@@ -353,29 +353,25 @@ impl MonitorList {
         // 特殊情况，只有一个显示器，直接返回
         if monitors.len() == 1 {
             let first_monitor = monitors.first().unwrap();
-            let capture_image = first_monitor.capture(
-                if let Some(crop_region) = crop_region {
-                    Some(first_monitor.get_monitor_crop_region(crop_region))
-                } else {
-                    None
-                },
-                exclude_window,
-                capture_option,
-            );
+            let monitor_crop_region =
+                crop_region.map(|region| first_monitor.get_monitor_crop_region(region));
+            let capture_image = first_monitor
+                .capture(monitor_crop_region, exclude_window, capture_option)
+                .or_else(|| {
+                    log::warn!(
+                        "[MonitorInfoList::capture] Retrying failed monitor capture, monitor rect: {:?}",
+                        first_monitor.rect
+                    );
+                    first_monitor.capture(monitor_crop_region, exclude_window, capture_option)
+                });
 
-            // 有些捕获失败的显示器，返回一个空图像，这里需要特殊处理
+            // 有些捕获失败的显示器会返回 1x1 哨兵图像，不能把它当成成功的黑图。
             if let Some(capture_image) = capture_image.as_ref() {
                 if capture_image.width() == 1 && capture_image.height() == 1 {
-                    return match capture_option.color_format {
-                        ColorFormat::Rgb8 => Ok(image::DynamicImage::new_rgb8(
-                            (first_monitor.rect.max_x - first_monitor.rect.min_x) as u32,
-                            (first_monitor.rect.max_y - first_monitor.rect.min_y) as u32,
-                        )),
-                        ColorFormat::Rgba8 => Ok(image::DynamicImage::new_rgba8(
-                            (first_monitor.rect.max_x - first_monitor.rect.min_x) as u32,
-                            (first_monitor.rect.max_y - first_monitor.rect.min_y) as u32,
-                        )),
-                    };
+                    return Err(format!(
+                        "[MonitorInfoList::capture] Monitor capture returned 1x1 sentinel, monitor rect: {:?}",
+                        first_monitor.rect
+                    ));
                 }
             }
 
@@ -393,38 +389,46 @@ impl MonitorList {
         // 将每个显示器截取的图像，绘制到该图像上
         let monitor_image_list = monitors
             .par_iter()
-            .filter(|monitor| monitor.rect.overlaps(&crop_region.unwrap_or(ElementRect {
+            .enumerate()
+            .filter(|(_, monitor)| monitor.rect.overlaps(&crop_region.unwrap_or(ElementRect {
                 min_x: i32::MIN,
                 min_y: i32::MIN,
                 max_x: i32::MAX,
                 max_y: i32::MAX,
             })))
-            .map(|monitor| {
+            .map(|(monitor_index, monitor)| {
                 let monitor_crop_region = if let Some(crop_region) = crop_region {
                     Some(monitor.get_monitor_crop_region(crop_region))
                 } else {
                     None
                 };
 
-                let capture_image = monitor.capture(monitor_crop_region, exclude_window, capture_option);
-
-                match capture_image {
-                    Some(image) => Some((image, monitor_crop_region)),
-                    None => {
+                let capture_image = monitor
+                    .capture(monitor_crop_region, exclude_window, capture_option)
+                    .or_else(|| {
                         log::warn!(
-                            "[MonitorInfoList::capture] Failed to capture monitor image, monitor rect: {:?}",
+                            "[MonitorInfoList::capture] Retrying failed monitor capture, monitor rect: {:?}",
                             monitor.rect
                         );
+                        monitor.capture(monitor_crop_region, exclude_window, capture_option)
+                    })
+                    .ok_or_else(|| {
+                        format!(
+                            "[MonitorInfoList::capture] Failed to capture monitor image after retry, monitor rect: {:?}",
+                            monitor.rect
+                        )
+                    })?;
 
-                        None
-                    }
+                if capture_image.width() == 1 && capture_image.height() == 1 {
+                    return Err(format!(
+                        "[MonitorInfoList::capture] Monitor capture returned 1x1 sentinel, monitor rect: {:?}",
+                        monitor.rect
+                    ));
                 }
+
+                Ok((monitor_index, capture_image, monitor_crop_region))
             })
-            .filter_map(|result| match result {
-                Some((image, monitor_crop_region)) => Some((image, monitor_crop_region)),
-                None => None,
-            })
-            .collect::<Vec<(image::DynamicImage, Option<ElementRect>)>>();
+            .collect::<Result<Vec<(usize, image::DynamicImage, Option<ElementRect>)>, String>>()?;
 
         if monitor_image_list.is_empty() {
             return Err(format!(
@@ -459,9 +463,9 @@ impl MonitorList {
 
         let capture_image_pixels_ptr = capture_image_pixels.as_mut_ptr() as usize;
 
-        monitor_image_list.par_iter().enumerate().for_each(
-            |(index, (monitor_image, monitor_crop_region))| {
-                let monitor = &monitors[index];
+        monitor_image_list.par_iter().for_each(
+            |(monitor_index, monitor_image, monitor_crop_region)| {
+                let monitor = &monitors[*monitor_index];
 
                 // 计算显示器在合并图像中的位置
                 let offset_x: i32;

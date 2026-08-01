@@ -290,6 +290,10 @@ const SelectLayerCore: React.FC<SelectLayerProps> = ({ actionRef }) => {
 	const enableSelectRef = useRef(false); // 是否启用选择
 	const updateEnableSelect = useCallback((captureStep: CaptureStep) => {
 		enableSelectRef.current = captureStep === CaptureStep.Select;
+		if (layerContainerElementRef.current) {
+			layerContainerElementRef.current.style.pointerEvents =
+				captureStep === CaptureStep.Select ? "auto" : "none";
+		}
 	}, []);
 	const [getDrawState] = useStateSubscriber(DrawStatePublisher, undefined);
 	const [getCaptureStep] = useStateSubscriber(
@@ -325,6 +329,11 @@ const SelectLayerCore: React.FC<SelectLayerProps> = ({ actionRef }) => {
 	 * 非选择状态时，是否可以激活选区
 	 */
 	const canEnableSelect = useCallback(() => {
+		const drawState = getDrawState();
+		if (drawState !== DrawState.Idle && drawState !== DrawState.Select) {
+			return false;
+		}
+
 		const selectRect = getSelectRect();
 		if (!selectRect) {
 			return false;
@@ -361,7 +370,7 @@ const SelectLayerCore: React.FC<SelectLayerProps> = ({ actionRef }) => {
 		}
 
 		return false;
-	}, [getSelectRect, mousePositionRef]);
+	}, [getDrawState, getSelectRect, mousePositionRef]);
 
 	const updateLayerPointerEvents = useCallback((): boolean => {
 		if (!layerContainerElementRef.current) {
@@ -516,6 +525,16 @@ const SelectLayerCore: React.FC<SelectLayerProps> = ({ actionRef }) => {
 	const {
 		contentScale: [, , contentScaleRef],
 	} = useMonitorRect();
+	const ensureSelectLayerCanvasContext = useCallback(() => {
+		const canvas = selectLayerCanvasRef.current;
+		if (!canvas) {
+			return null;
+		}
+
+		const context = canvas.getContext("2d");
+		selectLayerCanvasContextRef.current = context;
+		return context;
+	}, []);
 	const drawCanvasSelectRect = useCallback(
 		(
 			rect: ElementRect,
@@ -524,9 +543,11 @@ const SelectLayerCore: React.FC<SelectLayerProps> = ({ actionRef }) => {
 				imageData: ImageData;
 			},
 		) => {
-			if (!selectLayerCanvasContextRef.current) {
+			const selectLayerCanvasContext =
+				selectLayerCanvasContextRef.current ?? ensureSelectLayerCanvasContext();
+			if (!selectLayerCanvasContext) {
 				appWarn(
-					"[selectLayer::drawCanvasSelectRect] selectLayerCanvasContextRef.current is undefined",
+					"[selectLayer::drawCanvasSelectRect] select layer canvas context is undefined",
 				);
 				return;
 			}
@@ -550,7 +571,7 @@ const SelectLayerCore: React.FC<SelectLayerProps> = ({ actionRef }) => {
 					max_y: monitorHeight,
 				},
 				selectRectRadiusRef.current,
-				selectLayerCanvasContextRef.current,
+				selectLayerCanvasContext,
 				currentTheme === AppSettingsTheme.Dark,
 				window.devicePixelRatio * contentScaleRef.current,
 				getScreenshotType()?.type === ScreenshotType.TopWindow ||
@@ -582,6 +603,7 @@ const SelectLayerCore: React.FC<SelectLayerProps> = ({ actionRef }) => {
 		[
 			contentScaleRef,
 			currentTheme,
+			ensureSelectLayerCanvasContext,
 			getScreenshotType,
 			resizeToolbarUpdateStyleRenderCallback,
 		],
@@ -623,26 +645,18 @@ const SelectLayerCore: React.FC<SelectLayerProps> = ({ actionRef }) => {
 			// 清除 mouseDownPosition，避免拖动时提前退出，第二次唤醒时依旧保留了状态
 			mouseDownPositionRef.current = undefined;
 
-			if (
-				!selectLayerCanvasContextRef.current &&
-				selectLayerCanvasRef.current
-			) {
-				const ctx = selectLayerCanvasRef.current.getContext("2d");
-				if (!ctx) {
-					appWarn(
-						"[selectLayer::onCaptureBoundingBoxInfoReady] ctx is undefined",
-					);
-				} else {
-					selectLayerCanvasContextRef.current = ctx;
-				}
-			}
-
 			if (selectLayerCanvasRef.current) {
 				selectLayerCanvasRef.current.height = captureBoundingBoxInfo.height;
 				selectLayerCanvasRef.current.width = captureBoundingBoxInfo.width;
 			}
+
+			if (!ensureSelectLayerCanvasContext()) {
+				appWarn(
+					"[selectLayer::onCaptureBoundingBoxInfoReady] select layer canvas context is undefined",
+				);
+			}
 		},
-		[setSelectState],
+		[ensureSelectLayerCanvasContext, setSelectState],
 	);
 
 	const opacityImageDataRef = useRef<

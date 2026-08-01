@@ -16,7 +16,8 @@ const MenuSiderCore: React.FC<{
 	menuItems: MenuItem[];
 	darkMode: boolean;
 	pathname: string;
-}> = ({ menuItems, darkMode, pathname }) => {
+	onPreloadRoute?: (path?: string) => void;
+}> = ({ menuItems, darkMode, pathname, onPreloadRoute }) => {
 	const { token } = theme.useToken();
 	const [collapsed, setCollapsed] = useState(false);
 	useAppSettingsLoad(
@@ -74,13 +75,13 @@ const MenuSiderCore: React.FC<{
 						<div className="logo-text">
 							{collapsed ? (
 								<>
-									<div className="logo-text-highlight">S</div>
-									<div>now</div>
+									<div className="logo-text-highlight">Q</div>
+									<div>xq</div>
 								</>
 							) : (
 								<>
-									<div className="logo-text-highlight">Snow</div>
-									<div>Shot</div>
+									<div className="logo-text-highlight">Q</div>
+									<div>xq</div>
 								</>
 							)}
 						</div>
@@ -93,6 +94,7 @@ const MenuSiderCore: React.FC<{
 						mode="inline"
 						theme={darkMode ? "dark" : "light"}
 						items={menuItems}
+						onMouseEnter={() => onPreloadRoute?.(pathname)}
 						defaultOpenKeys={menuItems
 							.map((item) => item?.key as string)
 							.filter((key) => !!key)}
@@ -103,10 +105,11 @@ const MenuSiderCore: React.FC<{
                 .logo-wrap {
                     margin-top: 16px;
                     margin-bottom: 10px;
-                    font-weight: 600;
-                    font-size: 21px;
+                    font-weight: 700;
+                    font-size: 22px;
                     text-align: center;
                     font-style: italic;
+                    letter-spacing: 1px;
                 }
 
                 .logo-wrap .logo-text {

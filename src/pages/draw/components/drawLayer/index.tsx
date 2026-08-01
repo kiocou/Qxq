@@ -36,6 +36,19 @@ const DrawLayerCore: React.FC<{
 }> = ({ actionRef }) => {
 	const { token } = theme.useToken();
 	const drawCoreActionRef = useRef<DrawCoreActionType | undefined>(undefined);
+	const pendingActiveToolRef = useRef<
+		Parameters<DrawCoreActionType["setActiveTool"]> | undefined
+	>(undefined);
+	const setDrawCoreActionRef = useCallback(
+		(action: DrawCoreActionType | null) => {
+			drawCoreActionRef.current = action ?? undefined;
+			if (action && pendingActiveToolRef.current) {
+				action.setActiveTool(...pendingActiveToolRef.current);
+				pendingActiveToolRef.current = undefined;
+			}
+		},
+		[],
+	);
 	const { mousePositionRef } = useContext(DrawContext);
 	const [, setExcalidrawEvent] = useStateSubscriber(
 		ExcalidrawEventPublisher,
@@ -59,7 +72,13 @@ const DrawLayerCore: React.FC<{
 	useImperativeHandle(actionRef, (): DrawLayerActionType => {
 		return {
 			setActiveTool: (...args) => {
-				drawCoreActionRef.current?.setActiveTool?.(...args);
+				if (drawCoreActionRef.current) {
+					drawCoreActionRef.current.setActiveTool(...args);
+				} else {
+					// DrawCore 内部包含懒加载组件，首次点击可能早于 ref 提交。
+					// 只保留最后一次选择，核心就绪后立即补发。
+					pendingActiveToolRef.current = args;
+				}
 			},
 			syncActionResult: (...args) => {
 				drawCoreActionRef.current?.syncActionResult(...args);
@@ -267,7 +286,7 @@ const DrawLayerCore: React.FC<{
 		<DrawCoreContext.Provider value={drawCoreContextValue}>
 			<Suspense>
 				<DrawCore
-					actionRef={drawCoreActionRef}
+					actionRef={setDrawCoreActionRef}
 					zIndex={zIndexs.Draw_DrawCacheLayer}
 					layoutMenuZIndex={zIndexs.Draw_ExcalidrawToolbar}
 					excalidrawCustomOptions={excalidrawCustomOptions}

@@ -51,6 +51,8 @@ import {
 	AppSettingsPublisher,
 } from "@/contexts/appSettingsActionContext";
 import {
+	type ExecuteScreenshotPayload,
+	emitCaptureSessionChange,
 	executeScreenshot as executeScreenshotFunc,
 	releaseDrawPage,
 } from "@/functions/screenshot";
@@ -271,6 +273,13 @@ const DrawPageCore: React.FC<{
 		[getScreenshotType, setCaptureEvent],
 	);
 	const capturingRef = useRef(false);
+	const activeCaptureSessionRef = useRef<ExecuteScreenshotPayload | undefined>(
+		undefined,
+	);
+	const startedCaptureSessionIdRef = useRef<string | undefined>(undefined);
+	const pendingExecuteScreenshotRef = useRef<
+		ExecuteScreenshotPayload | undefined
+	>(undefined);
 	const circleCursorRef = useRef<HTMLDivElement>(null);
 
 	const { history } = useContext(HistoryContext);
@@ -453,65 +462,116 @@ const DrawPageCore: React.FC<{
 	const setCaptureStateActionTimerRef = useRef<NodeJS.Timeout | undefined>(
 		undefined,
 	);
-	const setCaptureStateAction = useCallback(async (capturing: boolean) => {
-		if (setCaptureStateActionTimerRef.current) {
-			clearTimeout(setCaptureStateActionTimerRef.current);
-			setCaptureStateActionTimerRef.current = undefined;
-		}
+	const emitCaptureSessionEvent = useCallback(
+		async (
+			session: ExecuteScreenshotPayload,
+			phase: "started" | "finished" | "rejected",
+			reason?: string,
+		) => {
+			try {
+				await emitCaptureSessionChange({
+					sessionId: session.sessionId,
+					type: session.type,
+					phase,
+					reason,
+				});
+			} catch (error) {
+				appError("[DrawPageCore] emitCaptureSessionChange error", error);
+			}
+		},
+		[],
+	);
+	const finishActiveCaptureSession = useCallback(
+		async (reason?: string) => {
+			const session = activeCaptureSessionRef.current;
+			if (!session) {
+				return;
+			}
 
-		if (capturing) {
-			setCaptureState(capturing);
-		} else {
-			setCaptureStateActionTimerRef.current = setTimeout(() => {
-				setCaptureState(capturing);
+			// 先清空引用，确保并发的取消/异常路径只结束一次。
+			activeCaptureSessionRef.current = undefined;
+			startedCaptureSessionIdRef.current = undefined;
+			await emitCaptureSessionEvent(session, "finished", reason);
+		},
+		[emitCaptureSessionEvent],
+	);
+	const setCaptureStateAction = useCallback(
+		async (capturing: boolean, reason?: string) => {
+			if (setCaptureStateActionTimerRef.current) {
+				clearTimeout(setCaptureStateActionTimerRef.current);
 				setCaptureStateActionTimerRef.current = undefined;
-			}, 256);
-		}
-	}, []);
+			}
+
+			const session = activeCaptureSessionRef.current;
+			if (
+				capturing &&
+				session &&
+				startedCaptureSessionIdRef.current !== session.sessionId
+			) {
+				startedCaptureSessionIdRef.current = session.sessionId;
+				await emitCaptureSessionEvent(session, "started");
+			} else if (!capturing) {
+				await finishActiveCaptureSession(reason);
+			}
+
+			if (capturing) {
+				setCaptureState(capturing);
+			} else {
+				setCaptureStateActionTimerRef.current = setTimeout(() => {
+					setCaptureState(capturing);
+					setCaptureStateActionTimerRef.current = undefined;
+				}, 256);
+			}
+		},
+		[emitCaptureSessionEvent, finishActiveCaptureSession],
+	);
 
 	const finishCapture = useCallback<DrawContextType["finishCapture"]>(
 		async (clearScrollScreenshot: boolean = true) => {
-			// 停止监听键盘
-			listenKeyStop().catch((error) => {
-				appError("[DrawPageCore] listenKeyStop error", error);
-			});
+			try {
+				// 停止监听键盘
+				listenKeyStop().catch((error) => {
+					appError("[DrawPageCore] listenKeyStop error", error);
+				});
 
-			// 快速隐藏窗口
-			appWindowRef.current.setIgnoreCursorEvents(true);
-			if (layerContainerRef.current) {
-				layerContainerRef.current.style.opacity = "0";
+				// 快速隐藏窗口
+				appWindowRef.current.setIgnoreCursorEvents(true);
+				if (layerContainerRef.current) {
+					layerContainerRef.current.style.opacity = "0";
+				}
+
+				drawPageStateRef.current = DrawPageState.WaitRelease;
+				releasePage();
+
+				if (clearScrollScreenshot) {
+					scrollScreenshotClear();
+				}
+
+				window.getSelection()?.removeAllRanges();
+				await Promise.all([
+					imageLayerActionRef.current?.onCaptureFinish(),
+					selectLayerActionRef.current?.onCaptureFinish(),
+					drawLayerActionRef.current?.onCaptureFinish(),
+				]);
+
+				setCaptureEvent({
+					event: CaptureEvent.onCaptureFinish,
+				});
+				imageBufferRef.current = undefined;
+				resetCaptureStep();
+				resetDrawState();
+				resetScreenshotType();
+				drawToolbarActionRef.current?.setEnable(false);
+				history.clear();
+
+				// 等待 1 帧，确保截图窗口内的元素均隐藏完成
+				setTimeout(() => {
+					hideWindow();
+				}, 17);
+			} finally {
+				capturingRef.current = false;
+				await setCaptureStateAction(false);
 			}
-
-			drawPageStateRef.current = DrawPageState.WaitRelease;
-			releasePage();
-
-			if (clearScrollScreenshot) {
-				scrollScreenshotClear();
-			}
-
-			window.getSelection()?.removeAllRanges();
-			await Promise.all([
-				imageLayerActionRef.current?.onCaptureFinish(),
-				selectLayerActionRef.current?.onCaptureFinish(),
-				drawLayerActionRef.current?.onCaptureFinish(),
-			]);
-
-			setCaptureEvent({
-				event: CaptureEvent.onCaptureFinish,
-			});
-			imageBufferRef.current = undefined;
-			resetCaptureStep();
-			resetDrawState();
-			resetScreenshotType();
-			drawToolbarActionRef.current?.setEnable(false);
-			capturingRef.current = false;
-			setCaptureStateAction(false);
-			history.clear();
-
-			// 等待 1 帧，确保截图窗口内的元素均隐藏完成
-			setTimeout(() => {
-				hideWindow();
-			}, 17);
 		},
 		[
 			hideWindow,
@@ -634,7 +694,7 @@ const DrawPageCore: React.FC<{
 			params: { windowId?: string; captureHistoryId?: string },
 		) => {
 			capturingRef.current = true;
-			setCaptureStateAction(true);
+			await setCaptureStateAction(true);
 			drawToolbarActionRef.current?.setEnable(false);
 
 			const captureAllMonitorsPromise =
@@ -671,7 +731,7 @@ const DrawPageCore: React.FC<{
 			) {
 				sendErrorMessage(intl.formatMessage({ id: "draw.captureError" }));
 
-				finishCapture();
+				await finishCapture();
 				return;
 			}
 
@@ -999,7 +1059,7 @@ const DrawPageCore: React.FC<{
 		listenKeyStop();
 
 		capturingRef.current = false;
-		setCaptureStateAction(false);
+		await setCaptureStateAction(false);
 
 		const fixedContentAction = getFixedContentAction();
 
@@ -1276,59 +1336,126 @@ const DrawPageCore: React.FC<{
 	const releaseExecuteScreenshotTimerRef = useRef<
 		| {
 				timer: NodeJS.Timeout | undefined;
-				type: ScreenshotType;
+				payload: ExecuteScreenshotPayload;
 		  }
 		| undefined
 	>(undefined);
-
-	useEffect(() => {
-		// 监听截图命令
-		const listenerId = addListener("execute-screenshot", (args) => {
-			const payload = (
-				args as {
-					payload: {
-						type: ScreenshotType;
-						windowLabel?: string;
-						captureHistoryId?: string;
-					};
-				}
-			).payload;
-
-			// 防止循环调用
-			if (payload.windowLabel === appWindowRef.current?.label) {
+	const rejectCaptureSession = useCallback(
+		async (session: ExecuteScreenshotPayload, reason: string) => {
+			await emitCaptureSessionEvent(session, "rejected", reason);
+		},
+		[emitCaptureSessionEvent],
+	);
+	const handleExecuteScreenshot = useCallback(
+		async (payload: ExecuteScreenshotPayload) => {
+			const sourceWindowLabel =
+				payload.sourceWindowLabel ?? payload.windowLabel;
+			// 防止旧绘制窗口转发命令后再次处理自己的事件。
+			if (sourceWindowLabel === appWindowRef.current?.label) {
 				return;
 			}
 
-			if (capturingRef.current) {
+			const activeSession = activeCaptureSessionRef.current;
+			const pendingSession = pendingExecuteScreenshotRef.current;
+			const releaseSession = releaseExecuteScreenshotTimerRef.current?.payload;
+			if (
+				activeSession?.sessionId === payload.sessionId ||
+				pendingSession?.sessionId === payload.sessionId ||
+				releaseSession?.sessionId === payload.sessionId
+			) {
 				return;
 			}
 
-			if (payload.type === ScreenshotType.CaptureFullScreen) {
-				captureHistoryActionRef.current?.captureFullScreen();
+			if (
+				capturingRef.current ||
+				activeSession ||
+				pendingSession ||
+				releaseSession
+			) {
+				await rejectCaptureSession(payload, "capture-session-busy");
 				return;
 			}
 
 			if (drawPageStateRef.current === DrawPageState.Init) {
+				// 初始化期间只保留一条完整请求；后续重复 ID 会在上面直接忽略。
+				pendingExecuteScreenshotRef.current = payload;
 				return;
-			} else if (drawPageStateRef.current === DrawPageState.Release) {
-				// 这时候可能窗口还在加载中，每隔一段时间触发下截图
-				if (releaseExecuteScreenshotTimerRef.current?.timer) {
-					clearInterval(releaseExecuteScreenshotTimerRef.current.timer);
-				}
-				releaseExecuteScreenshotTimerRef.current = {
-					timer: setInterval(() => {
-						executeScreenshotFunc(payload.type, appWindowRef.current?.label);
-					}, 128),
-					type: payload.type,
-				};
+			}
 
+			if (drawPageStateRef.current === DrawPageState.Release) {
+				// 旧绘制窗口等待新窗口加载时持续转发同一会话，不能生成新 ID。
+				const forwardRequest = () => {
+					void executeScreenshotFunc(
+						payload.type,
+						appWindowRef.current?.label,
+						payload.captureHistoryId,
+						payload.sessionId,
+					).catch((error) => {
+						appError("[DrawPageCore] forward screenshot error", error);
+					});
+				};
+				releaseExecuteScreenshotTimerRef.current = {
+					timer: setInterval(forwardRequest, 128),
+					payload,
+				};
 				return;
-			} else if (drawPageStateRef.current === DrawPageState.WaitRelease) {
-				// 重置为激活状态
+			}
+
+			if (drawPageStateRef.current === DrawPageState.WaitRelease) {
+				// 当前绘制窗口还未释放，直接重新激活复用。
 				drawPageStateRef.current = DrawPageState.Active;
 			}
 
-			excuteScreenshot(payload.type, payload);
+			if (payload.type === ScreenshotType.CaptureFullScreen) {
+				const captureFullScreenAction =
+					captureHistoryActionRef.current?.captureFullScreen;
+				if (!captureFullScreenAction) {
+					await rejectCaptureSession(
+						payload,
+						"full-screen-capture-unavailable",
+					);
+					return;
+				}
+
+				activeCaptureSessionRef.current = payload;
+				capturingRef.current = true;
+				let finishReason: string | undefined;
+				try {
+					await setCaptureStateAction(true);
+					await captureFullScreenAction();
+				} catch (error) {
+					finishReason = "full-screen-capture-failed";
+					appError("[DrawPageCore] captureFullScreen error", error);
+				} finally {
+					capturingRef.current = false;
+					await setCaptureStateAction(false, finishReason);
+				}
+				return;
+			}
+
+			activeCaptureSessionRef.current = payload;
+			try {
+				await excuteScreenshot(payload.type, {
+					captureHistoryId: payload.captureHistoryId,
+				});
+			} catch (error) {
+				appError("[DrawPageCore] execute screenshot error", error);
+				await finishCapture();
+			}
+		},
+		[
+			excuteScreenshot,
+			finishCapture,
+			rejectCaptureSession,
+			setCaptureStateAction,
+		],
+	);
+
+	useEffect(() => {
+		// 监听截图命令
+		const listenerId = addListener("execute-screenshot", (args) => {
+			const payload = (args as { payload: ExecuteScreenshotPayload }).payload;
+			void handleExecuteScreenshot(payload);
 		});
 
 		const finishListenerId = addListener("finish-screenshot", () => {
@@ -1345,7 +1472,14 @@ const DrawPageCore: React.FC<{
 
 				if (releaseExecuteScreenshotTimerRef.current?.timer) {
 					clearInterval(releaseExecuteScreenshotTimerRef.current.timer);
-					executeScreenshotFunc(releaseExecuteScreenshotTimerRef.current.type);
+					const pendingPayload =
+						releaseExecuteScreenshotTimerRef.current.payload;
+					void executeScreenshotFunc(
+						pendingPayload.type,
+						undefined,
+						pendingPayload.captureHistoryId,
+						pendingPayload.sessionId,
+					);
 				}
 			}
 
@@ -1357,7 +1491,7 @@ const DrawPageCore: React.FC<{
 			removeListener(finishListenerId);
 			removeListener(releaseListenerId);
 		};
-	}, [addListener, excuteScreenshot, removeListener, finishCapture]);
+	}, [addListener, finishCapture, handleExecuteScreenshot, removeListener]);
 
 	// 默认隐藏
 	useEffect(() => {
@@ -1554,7 +1688,13 @@ const DrawPageCore: React.FC<{
 	const onInitCanvasReady = useCallback(async () => {
 		drawPageStateRef.current = DrawPageState.Active;
 		await releaseDrawPage();
-	}, []);
+
+		const pendingRequest = pendingExecuteScreenshotRef.current;
+		if (pendingRequest) {
+			pendingExecuteScreenshotRef.current = undefined;
+			await handleExecuteScreenshot(pendingRequest);
+		}
+	}, [handleExecuteScreenshot]);
 
 	return (
 		<CommonDrawContext.Provider value={commonDrawContextValue}>

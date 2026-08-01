@@ -1,5 +1,6 @@
 import { InfoCircleOutlined } from "@ant-design/icons";
 import { Tooltip, theme } from "antd";
+import { memo } from "react";
 
 export const IconLabel: React.FC<{
 	icon?: React.ReactNode;
@@ -32,3 +33,5 @@ export const IconLabel: React.FC<{
 		</div>
 	);
 };
+
+export default memo(IconLabel);

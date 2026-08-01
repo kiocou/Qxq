@@ -344,6 +344,14 @@ export type AppSettingsData = {
 		lockDragAspectRatio: number;
 		/** Tab 键是否启用查找子元素 */
 		enableTabFindChildrenElements: boolean;
+		/** 悬浮工具栏是否停靠在屏幕边缘 */
+		floatingToolbarDocked: boolean;
+		/** 悬浮工具栏停靠/展开方向 */
+		floatingToolbarDockSide: "left" | "right";
+		/** 悬浮工具栏纵向位置（物理像素，-1 表示未记录） */
+		floatingToolbarY: number;
+		/** 悬浮工具栏横向位置（物理像素，仅自由悬浮时有效，-1 表示未记录） */
+		floatingToolbarX: number;
 	};
 	[AppSettingsGroup.DrawToolbarKeyEvent]: Record<
 		DrawToolbarKeyEventKey,

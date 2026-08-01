@@ -52,6 +52,17 @@ import { getConfigDirPath, isAdminWithCache } from "@/utils/environment";
 import { appError } from "@/utils/log";
 import { MacOSPermissionsSettings } from "./components/macosPermissionsSettings";
 
+/** 模块级缓存：避免每次进入系统设置页重复读取路径（IPC） */
+let cachedSystemSettingsPaths:
+	| {
+			configDirPath: string;
+			appLogPath: string;
+			configDirBasePath: string;
+	  }
+	| undefined;
+/** 模块级缓存：进程内管理员状态不会变化 */
+let cachedIsAdmin: boolean | undefined;
+
 export const SystemSettingsPage = () => {
 	const intl = useIntl();
 	const { token } = theme.useToken();
@@ -153,15 +164,26 @@ export const SystemSettingsPage = () => {
 	const [configDirBasePath, setConfigDirBasePath] = useState<string>("");
 	const [appLogPath, setAppLogPath] = useState<string>("");
 	useEffect(() => {
-		getConfigDirPath().then((path) => {
-			setConfigDirPath(path);
-		});
-		appLogDir().then((path) => {
-			setAppLogPath(path);
-		});
-		getAppConfigBaseDir().then((path) => {
-			setConfigDirBasePath(path);
-		});
+		// 模块级缓存：避免每次进入设置页重复读取路径（IPC）
+		if (cachedSystemSettingsPaths) {
+			setConfigDirPath(cachedSystemSettingsPaths.configDirPath);
+			setAppLogPath(cachedSystemSettingsPaths.appLogPath);
+			setConfigDirBasePath(cachedSystemSettingsPaths.configDirBasePath);
+			return;
+		}
+
+		Promise.all([getConfigDirPath(), appLogDir(), getAppConfigBaseDir()]).then(
+			([nextConfigDirPath, nextAppLogPath, nextConfigDirBasePath]) => {
+				cachedSystemSettingsPaths = {
+					configDirPath: nextConfigDirPath,
+					appLogPath: nextAppLogPath,
+					configDirBasePath: nextConfigDirBasePath,
+				};
+				setConfigDirPath(nextConfigDirPath);
+				setAppLogPath(nextAppLogPath);
+				setConfigDirBasePath(nextConfigDirBasePath);
+			},
+		);
 	}, []);
 
 	const historyValidDurationOptions = useMemo(() => {
@@ -235,7 +257,13 @@ export const SystemSettingsPage = () => {
 
 	const [isAdmin, setIsAdmin] = useStateRef<boolean>(false);
 	useEffect(() => {
+		// 进程内管理员状态不会变化，模块级缓存避免每次挂载重新检查
+		if (cachedIsAdmin !== undefined) {
+			setIsAdmin(cachedIsAdmin);
+			return;
+		}
 		isAdminWithCache().then((result) => {
+			cachedIsAdmin = result;
 			setIsAdmin(result);
 		});
 	}, [setIsAdmin]);

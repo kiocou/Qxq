@@ -20,6 +20,7 @@ import {
 } from "@/commands/listenKey";
 import { ocrRelease } from "@/commands/ocr";
 import {
+	CAPTURE_SESSION_CHANGE_EMIT_KEY,
 	LISTEN_KEY_SERVICE_KEY_DOWN_EMIT_KEY,
 	LISTEN_KEY_SERVICE_KEY_UP_EMIT_KEY,
 	LISTEN_KEY_SERVICE_MOUSE_DOWN_EMIT_KEY,
@@ -130,6 +131,7 @@ const EventListenerCore: React.FC<{ children: React.ReactNode }> = ({
 		isIdlePage,
 		isFixedContentPage,
 		isVideoRecordToolbarPage,
+		isFloatingToolbarPage,
 	} = useMemo(() => {
 		let isDrawPage = false;
 		let isFullScreenDraw = false;
@@ -138,6 +140,7 @@ const EventListenerCore: React.FC<{ children: React.ReactNode }> = ({
 		let isVideoRecordToolbarPage = false;
 		let isIdlePage = false;
 		let isFixedContentPage = false;
+		let isFloatingToolbarPage = false;
 		if (pathname === "/draw") {
 			isDrawPage = true;
 		} else if (pathname === "/fullScreenDraw") {
@@ -152,6 +155,8 @@ const EventListenerCore: React.FC<{ children: React.ReactNode }> = ({
 			isIdlePage = true;
 		} else if (pathname === "/fixedContent") {
 			isFixedContentPage = true;
+		} else if (pathname === "/floatingToolbar") {
+			isFloatingToolbarPage = true;
 		}
 
 		return {
@@ -162,6 +167,7 @@ const EventListenerCore: React.FC<{ children: React.ReactNode }> = ({
 			isVideoRecordToolbarPage,
 			isIdlePage,
 			isFixedContentPage,
+			isFloatingToolbarPage,
 		};
 	}, [pathname]);
 
@@ -174,10 +180,23 @@ const EventListenerCore: React.FC<{ children: React.ReactNode }> = ({
 	const { refreshPluginStatusThrottle } = usePluginServiceContext();
 
 	useEffect(() => {
+		let disposed = false;
 		let detach: UnlistenFn;
-		attachConsole().then((d) => {
-			detach = d;
-		});
+		void attachConsole()
+			.then((d) => {
+				// React Strict Mode can dispose the effect before the async
+				// registration resolves. Detach immediately in that case.
+				if (disposed) {
+					d();
+					return;
+				}
+				detach = d;
+			})
+			.catch((error) => {
+				if (!disposed) {
+					appError("[EventListenerCore] attachConsole error", error);
+				}
+			});
 
 		const unlistenList: Promise<UnlistenFn>[] = [];
 		const defaultListener: Listener[] = [];
@@ -387,6 +406,14 @@ const EventListenerCore: React.FC<{ children: React.ReactNode }> = ({
 				});
 			}
 
+			// 悬浮工具栏在截图/绘制期间需自我隐藏，因此要监听截图会话广播
+			if (isFloatingToolbarPage) {
+				defaultListener.push({
+					event: CAPTURE_SESSION_CHANGE_EMIT_KEY,
+					callback: async () => {},
+				});
+			}
+
 			if (isVideoRecordPage || isVideoRecordToolbarPage) {
 				defaultListener.push({
 					event: "reload-video-record",
@@ -453,6 +480,7 @@ const EventListenerCore: React.FC<{ children: React.ReactNode }> = ({
 			});
 
 		return () => {
+			disposed = true;
 			listenerEventMapRef.current = new Map();
 			listenerMapRef.current = new Map();
 			listenerCount.current = 0;
@@ -481,6 +509,7 @@ const EventListenerCore: React.FC<{ children: React.ReactNode }> = ({
 		refreshPluginStatusThrottle,
 		isIdlePage,
 		isFixedContentPage,
+		isFloatingToolbarPage,
 		hasLayout,
 	]);
 

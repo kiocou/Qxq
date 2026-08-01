@@ -13,6 +13,7 @@ import {
 	createFixedContentWindow,
 	createFullScreenDrawWindow,
 } from "@/commands/core";
+import { toggleFloatingToolbarWindow } from "@/commands/floatingToolbar";
 import {
 	PLUGIN_ID_AI_CHAT,
 	PLUGIN_ID_FFMPEG,
@@ -443,18 +444,29 @@ const TrayIconLoaderComponent = () => {
 					],
 					[],
 				),
+			{
+				id: `${appWindow.label}-screenshot-fullScreenDraw`,
+				text: intl.formatMessage({ id: "home.fullScreenDraw" }),
+				accelerator: disableShortcut
+					? undefined
+					: formatKey(shortcutKeys[AppFunction.FullScreenDraw].shortcutKey),
+				action: async () => {
+					createFullScreenDrawWindow();
+				},
+			},
 				{
-					id: `${appWindow.label}-screenshot-fullScreenDraw`,
-					text: intl.formatMessage({ id: "home.fullScreenDraw" }),
-					accelerator: disableShortcut
-						? undefined
-						: formatKey(shortcutKeys[AppFunction.FullScreenDraw].shortcutKey),
+					id: `${appWindow.label}-toggle-floating-toolbar`,
+					text: intl.formatMessage({ id: "floatingToolbar.toggle" }),
 					action: async () => {
-						createFullScreenDrawWindow();
+						try {
+							await toggleFloatingToolbarWindow();
+						} catch (error) {
+							appError("[TrayIconLoader] toggle floating toolbar failed", error);
+						}
 					},
 				},
-				{
-					id: `${appWindow.label}-open-image-save-folder`,
+			{
+				id: `${appWindow.label}-open-image-save-folder`,
 					text: intl.formatMessage({ id: "home.openImageSaveFolder" }),
 					action: async () => {
 						openImageSaveFolder();
@@ -518,7 +530,7 @@ const TrayIconLoaderComponent = () => {
 					(await defaultWindowIcon()) ??
 					""),
 			showMenuOnLeftClick: false,
-			tooltip: "Snow Shot",
+			tooltip: "Qxq",
 			action: (event) => {
 				switch (event.type) {
 					case "Click":

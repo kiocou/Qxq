@@ -1,5 +1,5 @@
 import { Button, Popconfirm } from "antd";
-import { useContext } from "react";
+import { memo, useContext } from "react";
 import { FormattedMessage } from "react-intl";
 import { defaultAppSettingsData } from "@/constants/appSettings";
 import { AppSettingsActionContext } from "@/contexts/appSettingsActionContext";
@@ -41,3 +41,5 @@ export const ResetSettingsButton: React.FC<{
 		</Popconfirm>
 	);
 };
+
+export default memo(ResetSettingsButton);

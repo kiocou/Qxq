@@ -58,7 +58,7 @@ export const AboutPage = () => {
 				<div style={{ marginBottom: -12 }}>
 					<img
 						src={"/images/app-icon.png"}
-						alt="Snow Shot"
+						alt="Qxq"
 						width={100}
 						height={100}
 					/>
@@ -81,11 +81,18 @@ export const AboutPage = () => {
 								marginTop: token.marginXS,
 							}}
 						>
-							<span style={{ color: "var(--snow-shot-purple-color)" }}>
-								Snow{" "}
-							</span>
-							<span>Shot</span>
+							<span style={{ color: "var(--snow-shot-purple-color)" }}>Q</span>
+							<span>xq</span>
 						</div>
+						<div
+							style={{
+								width: 44,
+								height: 3,
+								borderRadius: 2,
+								margin: `${token.marginSM}px auto 0`,
+								background: `linear-gradient(90deg, var(--snow-shot-purple-color), transparent)`,
+							}}
+						/>
 					</Badge>
 				</Title>
 				<div>

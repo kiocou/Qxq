@@ -7,7 +7,13 @@ import {
 import { useLocation, useRouter } from "@tanstack/react-router";
 import { Layout, theme } from "antd";
 import type { ItemType, MenuItemType } from "antd/es/menu/interface";
-import React, { useCallback, useContext, useEffect, useMemo } from "react";
+import React, {
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+} from "react";
 import { useIntl } from "react-intl";
 import { CheckEnvironment } from "@/components/checkEnvironment";
 import { CheckVersion } from "@/components/checkVersion";
@@ -43,6 +49,11 @@ import { MenuContent } from "./components/menuContent";
 import { MenuSider } from "./components/menuSider";
 
 type MenuItem = ItemType<MenuItemType>;
+type RouteMenuItem = MenuItemType & {
+	"data-route-path"?: string;
+	onMouseEnter?: () => void;
+	children?: MenuItem[];
+};
 
 const MenuLayoutCore: React.FC<{ children: React.ReactNode }> = ({
 	children,
@@ -79,8 +90,39 @@ const MenuLayoutCore: React.FC<{ children: React.ReactNode }> = ({
 	const { currentTheme } = useContext(AppContext);
 	const { updateAppSettings } = appSettings;
 
+	const router = useRouter();
 	const routerLocation = useLocation();
 	const pathname = routerLocation.pathname || "/";
+	const pendingRoutePerfRef = useRef<
+		{ path: string; startedAt: number } | undefined
+	>(undefined);
+	const preloadRoute = useCallback(
+		(path?: string) => {
+			if (!path) {
+				return;
+			}
+			void router.preloadRoute({ to: path }).catch(() => {
+				// Route preloading is opportunistic; navigation still handles loading.
+			});
+		},
+		[router],
+	);
+
+	useEffect(() => {
+		const pending = pendingRoutePerfRef.current;
+		if (!pending || pending.path !== pathname) {
+			return;
+		}
+		if (process.env.NODE_ENV === "development") {
+			requestAnimationFrame(() => {
+				const elapsed = performance.now() - pending.startedAt;
+				console.debug(
+					`[route] ${pending.path} first frame ${elapsed.toFixed(1)}ms`,
+				);
+			});
+		}
+		pendingRoutePerfRef.current = undefined;
+	}, [pathname]);
 	useAppSettingsLoad(
 		useCallback(
 			(settings) => {
@@ -117,7 +159,6 @@ const MenuLayoutCore: React.FC<{ children: React.ReactNode }> = ({
 
 	const { token } = theme.useToken();
 	const { isReadyStatus } = usePluginServiceContext();
-	const router = useRouter();
 	const routes = useMemo(() => {
 		const routes: RouteItem[] = [
 			{
@@ -502,8 +543,9 @@ const MenuLayoutCore: React.FC<{ children: React.ReactNode }> = ({
 		const routeTabsMap: Record<string, RouteMapItem> = {};
 
 		const convertToMenuItem = (route: RouteItem): MenuItem => {
-			const menuItem: MenuItem = {
+			const menuItem: RouteMenuItem = {
 				key: route.key,
+				"data-route-path": route.path,
 				label: route.label,
 				icon: route.icon,
 				onClick: () => {
@@ -511,9 +553,17 @@ const MenuLayoutCore: React.FC<{ children: React.ReactNode }> = ({
 						return;
 					}
 
+					preloadRoute(route.path);
+					if (process.env.NODE_ENV === "development") {
+						pendingRoutePerfRef.current = {
+							path: route.path,
+							startedAt: performance.now(),
+						};
+					}
 					router.navigate({ to: route.path });
 				},
-				children: undefined as unknown as MenuItem[],
+				onMouseEnter: () => preloadRoute(route.path),
+				children: undefined,
 			};
 
 			if (route.children?.length) {
@@ -529,13 +579,13 @@ const MenuLayoutCore: React.FC<{ children: React.ReactNode }> = ({
 				};
 			}
 
-			return menuItem;
+			return menuItem as MenuItem;
 		};
 
 		const menuItems = Object.values(routes).map(convertToMenuItem);
 
 		return { menuItems, routeTabsMap };
-	}, [router, routes]);
+	}, [preloadRoute, router, routes]);
 
 	return (
 		<>
@@ -549,6 +599,7 @@ const MenuLayoutCore: React.FC<{ children: React.ReactNode }> = ({
 						menuItems={menuItems}
 						darkMode={currentTheme === AppSettingsTheme.Dark}
 						pathname={pathname}
+						onPreloadRoute={preloadRoute}
 					/>
 					<MenuContent pathname={pathname} routeTabsMap={routeTabsMap}>
 						<GlobalShortcut>{children}</GlobalShortcut>

@@ -48,6 +48,14 @@ import { DrawState } from "@/types/draw";
 
 const { Option } = Select;
 
+/** 托盘图标选项模块级缓存：避免每次进入设置页重新读取 6 个图标路径（IPC） */
+let cachedDefaultIconsOptions:
+	| {
+			locale: string;
+			options: CheckboxOptionType<TrayIconDefaultIcon>[];
+	  }
+	| undefined;
+
 export const GeneralSettingsPage = () => {
 	const intl = useIntl();
 	const { token } = theme.useToken();
@@ -195,8 +203,14 @@ export const GeneralSettingsPage = () => {
 
 	const [defaultIconsOptions, setDefaultIconsOptions] = useState<
 		CheckboxOptionType<TrayIconDefaultIcon>[]
-	>([]);
+	>(cachedDefaultIconsOptions?.options ?? []);
 	const initDefaultIconsOptions = useCallback(async () => {
+		// 语言未变时直接复用缓存，避免每次进入设置页都重新读取 6 个图标路径
+		if (cachedDefaultIconsOptions?.locale === intl.locale) {
+			setDefaultIconsOptions(cachedDefaultIconsOptions.options);
+			return;
+		}
+
 		const appDataDir = await resourceDir();
 		const [
 			defaultIconPath,
@@ -215,7 +229,7 @@ export const GeneralSettingsPage = () => {
 		]);
 
 		const iconSize = 24;
-		setDefaultIconsOptions([
+		const options: CheckboxOptionType<TrayIconDefaultIcon>[] = [
 			{
 				label: (
 					<Space>
@@ -227,6 +241,7 @@ export const GeneralSettingsPage = () => {
 							width={iconSize}
 							height={iconSize}
 							alt="default"
+							preview={false}
 						/>
 					</Space>
 				),
@@ -246,6 +261,7 @@ export const GeneralSettingsPage = () => {
 							width={iconSize}
 							height={iconSize}
 							alt="light"
+							preview={false}
 						/>
 					</Space>
 				),
@@ -265,6 +281,7 @@ export const GeneralSettingsPage = () => {
 							width={iconSize}
 							height={iconSize}
 							alt="dark"
+							preview={false}
 						/>
 					</Space>
 				),
@@ -284,6 +301,7 @@ export const GeneralSettingsPage = () => {
 							width={iconSize}
 							height={iconSize}
 							alt="snow-default"
+							preview={false}
 						/>
 					</Space>
 				),
@@ -304,6 +322,7 @@ export const GeneralSettingsPage = () => {
 							width={iconSize}
 							height={iconSize}
 							alt="snow-light"
+							preview={false}
 						/>
 					</Space>
 				),
@@ -323,6 +342,7 @@ export const GeneralSettingsPage = () => {
 							width={iconSize}
 							height={iconSize}
 							alt="snow-dark"
+							preview={false}
 						/>
 					</Space>
 				),
@@ -331,7 +351,9 @@ export const GeneralSettingsPage = () => {
 				}),
 				value: TrayIconDefaultIcon.SnowDark,
 			},
-		]);
+		];
+		cachedDefaultIconsOptions = { locale: intl.locale, options };
+		setDefaultIconsOptions(options);
 	}, [intl]);
 
 	const themeOptions = useMemo(() => {

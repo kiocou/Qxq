@@ -416,6 +416,27 @@ const AppSettingsContextProviderCore: React.FC<{
 							? newSettings.enableTabFindChildrenElements
 							: (prevSettings?.enableTabFindChildrenElements ??
 								defaultAppSettingsData[group].enableTabFindChildrenElements),
+					floatingToolbarDocked:
+						typeof newSettings?.floatingToolbarDocked === "boolean"
+							? newSettings.floatingToolbarDocked
+							: (prevSettings?.floatingToolbarDocked ??
+								defaultAppSettingsData[group].floatingToolbarDocked),
+					floatingToolbarDockSide:
+						newSettings?.floatingToolbarDockSide === "left" ||
+						newSettings?.floatingToolbarDockSide === "right"
+							? newSettings.floatingToolbarDockSide
+							: (prevSettings?.floatingToolbarDockSide ??
+								defaultAppSettingsData[group].floatingToolbarDockSide),
+					floatingToolbarY:
+						typeof newSettings?.floatingToolbarY === "number"
+							? newSettings.floatingToolbarY
+							: (prevSettings?.floatingToolbarY ??
+								defaultAppSettingsData[group].floatingToolbarY),
+					floatingToolbarX:
+						typeof newSettings?.floatingToolbarX === "number"
+							? newSettings.floatingToolbarX
+							: (prevSettings?.floatingToolbarX ??
+								defaultAppSettingsData[group].floatingToolbarX),
 				};
 			} else if (group === AppSettingsGroup.Screenshot) {
 				newSettings = newSettings as AppSettingsData[typeof group];
@@ -1584,6 +1605,7 @@ const AppSettingsContextProviderCore: React.FC<{
 
 		return {
 			algorithm: algorithms,
+			cssVar: true,
 			token: {
 				colorPrimary: appSettings[AppSettingsGroup.Common].mainColor,
 				borderRadius: appSettings[AppSettingsGroup.Common].borderRadius,

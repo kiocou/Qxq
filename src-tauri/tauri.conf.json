@@ -1,6 +1,6 @@
 {
 	"$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-	"productName": "Snow Shot",
+	"productName": "Qxq",
 	"mainBinaryName": "snowshot",
 	"version": "0.7.9-beta",
 	"identifier": "com.chao.snowshot",
@@ -8,7 +8,7 @@
 		"removeUnusedCommands": true,
 		"frontendDist": "../dist",
 		"devUrl": "http://localhost:8083",
-		"beforeDevCommand": "pnpm dev",
+		"beforeDevCommand": "",
 		"beforeBuildCommand": "pnpm build"
 	},
 	"app": {
@@ -19,7 +19,7 @@
 				"fullscreen": false,
 				"height": 632,
 				"maximizable": false,
-				"title": "Snow Shot",
+				"title": "Qxq",
 				"width": 1024,
 				"center": true,
 				"decorations": true,

@@ -1220,3 +1220,215 @@ pub async fn show_main_window(app: tauri::AppHandle, auto_hide: bool) -> Result<
 
     Ok(())
 }
+
+const FLOATING_TOOLBAR_LABEL: &str = "floating-toolbar";
+
+/// 创建浮动快捷工具栏窗口
+pub async fn create_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
+    // 复用已创建的 WebView，避免每次切换都重新加载前端和插件上下文。
+    if let Some(window) = app.get_webview_window(FLOATING_TOOLBAR_LABEL) {
+        window.show().map_err(|e| {
+            format!(
+                "[create_floating_toolbar_window] Failed to show window: {}",
+                e
+            )
+        })?;
+        return Ok(());
+    }
+
+    let (_, _, monitor) = get_target_monitor()?;
+
+    let monitor_x = monitor.x().unwrap() as f64;
+    let monitor_y = monitor.y().unwrap() as f64;
+    let monitor_width = monitor.width().unwrap() as f64;
+
+    #[cfg(target_os = "macos")]
+    let monitor_scale_factor = 1.0f64;
+    #[cfg(not(target_os = "macos"))]
+    let monitor_scale_factor = monitor.scale_factor().unwrap() as f64;
+
+    // 窗口初始位置：屏幕右侧居中偏上
+    let window_width = 80.0;
+    let window_height = 80.0;
+    let x = monitor_x / monitor_scale_factor + monitor_width / monitor_scale_factor
+        - window_width
+        - 20.0;
+    let y = monitor_y / monitor_scale_factor + 120.0;
+
+    let window = tauri::WebviewWindowBuilder::new(
+        &app,
+        FLOATING_TOOLBAR_LABEL,
+        tauri::WebviewUrl::App(PathBuf::from("/floatingToolbar")),
+    )
+    .always_on_top(true)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .fullscreen(false)
+    .title("Qxq - Floating Toolbar")
+    .position(x, y)
+    .inner_size(window_width, window_height)
+    .decorations(false)
+    .shadow(false)
+    .transparent(true)
+    .background_color(tauri::window::Color(0, 0, 0, 0))
+    .skip_taskbar(true)
+    .focused(false)
+    .build()
+    .map_err(|e| {
+        format!(
+            "[create_floating_toolbar_window] Failed to build window: {}",
+            e
+        )
+    })?;
+
+    window.show().map_err(|e| {
+        format!(
+            "[create_floating_toolbar_window] Failed to show window: {}",
+            e
+        )
+    })?;
+
+    Ok(())
+}
+
+/// 以物理像素原子调整浮动工具栏的窗口矩形。
+pub async fn set_floating_toolbar_window_rect(
+    app: tauri::AppHandle,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
+    if width <= 0 || height <= 0 {
+        return Err(format!(
+            "[set_floating_toolbar_window_rect] Invalid window size: {}x{}",
+            width, height
+        ));
+    }
+
+    let window = app
+        .get_webview_window(FLOATING_TOOLBAR_LABEL)
+        .ok_or_else(|| {
+            String::from("[set_floating_toolbar_window_rect] Floating toolbar window not found")
+        })?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos,
+        };
+
+        let hwnd = window.hwnd().map_err(|e| {
+            format!(
+                "[set_floating_toolbar_window_rect] Failed to get HWND: {}",
+                e
+            )
+        })?;
+
+        unsafe {
+            // SWP_ASYNCWINDOWPOS：异步返回，避免窗口 resize/移动期间阻塞 UI 线程导致动画掉帧
+            SetWindowPos(
+                hwnd,
+                None,
+                x,
+                y,
+                width,
+                height,
+                SWP_NOACTIVATE | SWP_NOZORDER | SWP_ASYNCWINDOWPOS,
+            )
+        }
+        .map_err(|e| {
+            format!(
+                "[set_floating_toolbar_window_rect] Failed to set window rect: {}",
+                e
+            )
+        })?;
+
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_position(tauri::PhysicalPosition::new(x, y))
+            .map_err(|e| {
+                format!(
+                    "[set_floating_toolbar_window_rect] Failed to set window position: {}",
+                    e
+                )
+            })?;
+        window
+            .set_size(tauri::PhysicalSize::new(width as u32, height as u32))
+            .map_err(|e| {
+                format!(
+                    "[set_floating_toolbar_window_rect] Failed to set window size: {}",
+                    e
+                )
+            })?;
+        Ok(())
+    }
+}
+
+/// 关闭浮动快捷工具栏窗口
+pub async fn close_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(FLOATING_TOOLBAR_LABEL) {
+        window.destroy().map_err(|e| {
+            format!(
+                "[close_floating_toolbar_window] Failed to destroy window: {}",
+                e
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+/// 是否存在浮动快捷工具栏窗口
+pub async fn has_floating_toolbar_window(app: tauri::AppHandle) -> Result<bool, String> {
+    Ok(app.get_webview_window(FLOATING_TOOLBAR_LABEL).is_some())
+}
+
+/// 显示浮动快捷工具栏窗口
+pub async fn show_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
+    match app.get_webview_window(FLOATING_TOOLBAR_LABEL) {
+        Some(window) => {
+            window.show().map_err(|e| {
+                format!(
+                    "[show_floating_toolbar_window] Failed to show window: {}",
+                    e
+                )
+            })?;
+            Ok(())
+        }
+        None => Err(String::from(
+            "[show_floating_toolbar_window] Floating toolbar window not found",
+        )),
+    }
+}
+
+/// 隐藏浮动快捷工具栏窗口
+pub async fn hide_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
+    match app.get_webview_window(FLOATING_TOOLBAR_LABEL) {
+        Some(window) => {
+            window.hide().map_err(|e| {
+                format!(
+                    "[hide_floating_toolbar_window] Failed to hide window: {}",
+                    e
+                )
+            })?;
+            Ok(())
+        }
+        None => Err(String::from(
+            "[hide_floating_toolbar_window] Floating toolbar window not found",
+        )),
+    }
+}
+
+/// 浮动快捷工具栏窗口是否可见
+pub async fn is_floating_toolbar_visible(app: tauri::AppHandle) -> Result<bool, String> {
+    match app.get_webview_window(FLOATING_TOOLBAR_LABEL) {
+        Some(window) => Ok(window.is_visible().unwrap_or(false)),
+        None => Ok(false),
+    }
+}

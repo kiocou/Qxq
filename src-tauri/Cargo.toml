@@ -120,7 +120,9 @@ tauri-build = "^2"
 tauri-plugin-log = "^2"
 tauri-plugin-fs = "^2"
 tauri-plugin-dialog = "^2"
-tauri-plugin-http = "^2"
+# cookies 特性会在 setup 时打开 app_cache_dir()/.cookies，本机返回 os error 5 (拒绝访问) 导致启动 panic。
+# 前端仅做无状态 fetch，不需要 cookie 持久化，故关闭该特性。
+tauri-plugin-http = { version = "^2", default-features = false, features = ["rustls-tls", "http2", "charset", "macos-system-configuration"] }
 tauri-plugin-store = "^2"
 tauri-plugin-clipboard-manager = { workspace = true }
 tauri-plugin-opener = "^2"
@@ -188,3 +190,4 @@ strip = true
 [features]
 dhat-heap = []   # if you are doing heap profiling
 dhat-ad-hoc = [] # if you are doing ad hoc profiling
+custom-protocol = ["tauri/custom-protocol"]

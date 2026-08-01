@@ -28,6 +28,8 @@ export const PageNav: React.FC<{
 		tabItemsRef.current = tabItems.items;
 	}, [tabItems]);
 	const anchorTopListRef = useRef<{ key: string; offsetTop: number }[]>([]);
+	/** 当前激活 key，滚动监听中相同值时跳过 setState */
+	const activeKeyRef = useRef<string | undefined>(undefined);
 
 	const updateActiveKey = useCallback((scrollTop: number) => {
 		const anchorTopList = anchorTopListRef.current;
@@ -48,12 +50,22 @@ export const PageNav: React.FC<{
 			return;
 		}
 
+		if (activeKeyRef.current === targetKey) {
+			return;
+		}
+		activeKeyRef.current = targetKey;
 		setActiveKey(targetKey);
 	}, []);
 	const updateActiveKeyDebounce = useMemo(
 		() => debounce(updateActiveKey, 256),
 		[updateActiveKey],
 	);
+	/** tab 结构签名：仅当 tab 集合真正变化时才重算锚点，避免路由重渲染触发多余 setState */
+	const tabKeysSignature = useMemo(
+		() => tabItems.items?.map((item) => item.key).join("|") ?? "",
+		[tabItems.items],
+	);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: 仅依赖 tab 结构签名，items 引用变化但结构相同时跳过
 	useEffect(() => {
 		if (!document) {
 			return;
@@ -64,6 +76,7 @@ export const PageNav: React.FC<{
 			return;
 		}
 		setActiveKey(tabs[0].key as string);
+		activeKeyRef.current = tabs[0].key as string;
 
 		anchorTopListRef.current = tabs.map((item) => {
 			const element = document.getElementById(item.key as string);
@@ -76,7 +89,7 @@ export const PageNav: React.FC<{
 		});
 
 		updateActiveKeyDebounce(0);
-	}, [tabItems, updateActiveKeyDebounce]);
+	}, [tabKeysSignature, updateActiveKeyDebounce]);
 
 	useImperativeHandle(
 		actionRef,
@@ -101,6 +114,7 @@ export const PageNav: React.FC<{
 						return;
 					}
 					target.scrollIntoView({ behavior: "smooth" });
+					activeKeyRef.current = key;
 					setActiveKey(key);
 				}}
 			/>

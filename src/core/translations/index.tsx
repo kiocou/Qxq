@@ -85,7 +85,7 @@ export const useTranslationRequest = (options?: {
 	const [translationApiConfigList, setTranslationApiConfigList] = useState<
 		TranslationApiConfig[] | undefined
 	>(undefined);
-	// Snow Shot 自带的
+	// Qxq 自带的
 	const [
 		officialTranslationTypes,
 		setOfficialTranslationTypes,

@@ -63,6 +63,11 @@ const Excalidraw = lazy(() =>
 const strokeWidthList = [1, 2, 4];
 const fontSizeList = [16, 20, 28, 36];
 
+const getStoredToolStyle = (appState: Partial<AppState>): Partial<AppState> =>
+	Object.fromEntries(
+		Object.entries(appState).filter(([key]) => key.startsWith("currentItem")),
+	) as Partial<AppState>;
+
 // 在 DrawCacheLayerCore 组件外部添加一个辅助函数
 const getNextValueInList = <T,>(
 	currentValue: T,
@@ -131,7 +136,7 @@ export const convertToolTypeToDrawState = (
 
 const storageKey = "global";
 const DrawCoreComponent: React.FC<{
-	actionRef: React.RefObject<DrawCoreActionType | undefined>;
+	actionRef: React.Ref<DrawCoreActionType | undefined>;
 	zIndex: number;
 	layoutMenuZIndex: number;
 	excalidrawCustomOptions?: NonNullable<ExcalidrawPropsCustomOptions>;
@@ -177,9 +182,10 @@ const DrawCoreComponent: React.FC<{
 	);
 	const drawCacheLayerElementRef = useRef<HTMLDivElement>(null);
 	const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI>(undefined);
-	const excalidrawAPI = useCallback((api: ExcalidrawImperativeAPI) => {
-		excalidrawAPIRef.current = api;
-	}, []);
+	const pendingActiveToolRef = useRef<
+		Parameters<DrawCoreActionType["setActiveTool"]> | undefined
+	>(undefined);
+	const activeToolRequestIdRef = useRef(0);
 	const excalidrawActionRef = useRef<ExcalidrawActionType>(undefined);
 
 	const updateScene = useCallback<DrawCoreActionType["updateScene"]>(
@@ -251,10 +257,14 @@ const DrawCoreComponent: React.FC<{
 						if (excalidrawAPIRef.current) {
 							// 未初始化 setstate 报错，未发现具体原因，延迟处理下
 							setTimeout(() => {
-								// biome-ignore lint/style/noNonNullAssertion: 已经确保 excalidrawAPIRef.current 不为空
-								excalidrawAPIRef.current!.updateScene({
+								const excalidrawAPI = excalidrawAPIRef.current;
+								if (!excalidrawAPI) {
+									return;
+								}
+								excalidrawAPI.updateScene({
 									appState: {
-										...(value.appState as AppState),
+										...excalidrawAPI.getAppState(),
+										...getStoredToolStyle(value.appState),
 										viewBackgroundColor: "#00000000",
 									},
 								});
@@ -262,7 +272,7 @@ const DrawCoreComponent: React.FC<{
 						} else {
 							excalidrawAppStateStoreValue.current = {
 								appState: {
-									...(value.appState as AppState),
+									...getStoredToolStyle(value.appState),
 									viewBackgroundColor: "#00000000",
 								},
 							};
@@ -524,50 +534,68 @@ const DrawCoreComponent: React.FC<{
 		}
 	}, []);
 
+	const setActiveTool = useCallback<DrawCoreActionType["setActiveTool"]>(
+		(tool, keepSelection, drawState) => {
+			const requestId = ++activeToolRequestIdRef.current;
+			const excalidrawAPI = excalidrawAPIRef.current;
+			if (!excalidrawAPI) {
+				// 截图窗口首次显示时 Excalidraw 可能仍在异步加载。
+				// 保留最后一次工具选择，在 API ready 后补发，避免按钮看似选中但无法绘制。
+				pendingActiveToolRef.current = [tool, keepSelection, drawState];
+				return;
+			}
+
+			// 工具必须立即生效。工具样式来自异步存储，等待它会让
+			// onChange 看到旧的 selection 状态并把刚选择的工具重置掉。
+			excalidrawAPI.setActiveTool(tool, keepSelection);
+
+			const appStateStore = excalidrawAppStateStoreRef.current;
+
+			if (!appStateStore?.inited()) {
+				return;
+			}
+
+			if (
+				drawState &&
+				needSaveAppState(drawState) &&
+				toolIndependentStyleRef.current &&
+				appStateStore
+			) {
+				// 读取 AppState
+				appStateStore
+					.get(getAppStateStorageKey(drawState))
+					.then((value) => {
+						if (requestId !== activeToolRequestIdRef.current || !value) {
+							return;
+						}
+
+						const appState = excalidrawAPI.getAppState();
+						if (!appState) {
+							return;
+						}
+
+						excalidrawAPI.updateScene({
+							appState: {
+								...appState,
+								...getStoredToolStyle(value.appState),
+							},
+							captureUpdate: "NEVER",
+						});
+					})
+					.finally(() => {
+						if (requestId === activeToolRequestIdRef.current) {
+							excalidrawAPI.setActiveTool(tool, keepSelection);
+						}
+					});
+			}
+		},
+		[getAppStateStorageKey, needSaveAppState],
+	);
+
 	useImperativeHandle(
 		actionRef,
 		() => ({
-			setActiveTool: (tool, keepSelection, drawState) => {
-				const appStateStore = excalidrawAppStateStoreRef.current;
-
-				if (!appStateStore?.inited()) {
-					return;
-				}
-
-				if (
-					drawState &&
-					needSaveAppState(drawState) &&
-					toolIndependentStyleRef.current &&
-					appStateStore
-				) {
-					// 读取 AppState
-					appStateStore
-						.get(getAppStateStorageKey(drawState))
-						.then((value) => {
-							if (!value) {
-								return;
-							}
-
-							const appState = excalidrawAPIRef.current?.getAppState();
-							if (!appState) {
-								return;
-							}
-
-							excalidrawAPIRef.current?.updateScene({
-								appState: {
-									...appState,
-									...(value.appState as AppState),
-								},
-								captureUpdate: "NEVER",
-							});
-						})
-						.finally(() => {
-							excalidrawAPIRef.current?.setActiveTool(tool, keepSelection);
-						});
-				} else {
-					excalidrawAPIRef.current?.setActiveTool(tool, keepSelection);
-				}
-			},
+			setActiveTool,
 			syncActionResult: (...args) => {
 				excalidrawActionRef.current?.syncActionResult(...args);
 			},
@@ -596,14 +624,7 @@ const DrawCoreComponent: React.FC<{
 				});
 			},
 		}),
-		[
-			getAppStateStorageKey,
-			getCanvas,
-			getCanvasContext,
-			getImageBitmap,
-			needSaveAppState,
-			updateScene,
-		],
+		[getCanvas, getCanvasContext, getImageBitmap, setActiveTool, updateScene],
 	);
 
 	const [currentPlatform, currentPlatformRef] = usePlatform();
@@ -755,7 +776,12 @@ const DrawCoreComponent: React.FC<{
 		NonNullable<ExcalidrawProps["excalidrawAPI"]>
 	>(
 		(api) => {
-			excalidrawAPI(api);
+			excalidrawAPIRef.current = api;
+			if (pendingActiveToolRef.current) {
+				const pendingActiveTool = pendingActiveToolRef.current;
+				pendingActiveToolRef.current = undefined;
+				setActiveTool(...pendingActiveTool);
+			}
 
 			if (excalidrawAppStateStoreValue.current) {
 				// 未初始化 setstate 报错，未发现具体原因，延迟处理下
@@ -764,9 +790,16 @@ const DrawCoreComponent: React.FC<{
 						return;
 					}
 
-					excalidrawAPIRef.current?.updateScene({
+					const excalidrawAPI = excalidrawAPIRef.current;
+					if (!excalidrawAPI) {
+						return;
+					}
+					excalidrawAPI.updateScene({
 						appState: {
-							...(excalidrawAppStateStoreValue.current.appState as AppState),
+							...excalidrawAPI.getAppState(),
+							...getStoredToolStyle(
+								excalidrawAppStateStoreValue.current.appState,
+							),
 						},
 					});
 				}, 0);
@@ -776,7 +809,7 @@ const DrawCoreComponent: React.FC<{
 				onLoad?.();
 			}, 17);
 		},
-		[excalidrawAPI, onLoad],
+		[onLoad, setActiveTool],
 	);
 
 	const excalidrawOnChange = useCallback<

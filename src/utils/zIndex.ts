@@ -77,5 +77,10 @@ export const zIndexs = {
 	FixedToScreen_CloseButton: 208,
 	// 固定到屏幕窗口 END
 
+	// FloatingToolbar 悬浮工具栏窗口 BEGIN
+	/** 悬浮工具栏根容器 */
+	FloatingToolbar: 101,
+	// FloatingToolbar 悬浮工具栏窗口 END
+
 	Max: 9999,
 };

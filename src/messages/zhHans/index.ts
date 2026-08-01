@@ -2,6 +2,7 @@ import { about } from "./about";
 import { appearance } from "./appearance";
 import { common } from "./common";
 import { draw } from "./draw";
+import { floatingToolbar } from "./floatingToolbar";
 import { fullScreenDraw } from "./fullScreenDraw";
 import { home } from "./home";
 import { menu } from "./menu";
@@ -16,6 +17,7 @@ export const zhHans = {
 	...settings,
 	...home,
 	...draw,
+	...floatingToolbar,
 	...tools,
 	...common,
 	...fullScreenDraw,

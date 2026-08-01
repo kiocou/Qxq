@@ -493,3 +493,44 @@ pub async fn set_window_rect(
 
     Ok(())
 }
+
+#[command]
+pub async fn create_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
+    snow_shot_tauri_commands_core::create_floating_toolbar_window(app).await
+}
+
+#[command]
+pub async fn close_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
+    snow_shot_tauri_commands_core::close_floating_toolbar_window(app).await
+}
+
+#[command]
+pub async fn set_floating_toolbar_window_rect(
+    app: tauri::AppHandle,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
+    snow_shot_tauri_commands_core::set_floating_toolbar_window_rect(app, x, y, width, height).await
+}
+
+#[command]
+pub async fn has_floating_toolbar_window(app: tauri::AppHandle) -> Result<bool, String> {
+    snow_shot_tauri_commands_core::has_floating_toolbar_window(app).await
+}
+
+#[command]
+pub async fn show_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
+    snow_shot_tauri_commands_core::show_floating_toolbar_window(app).await
+}
+
+#[command]
+pub async fn hide_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
+    snow_shot_tauri_commands_core::hide_floating_toolbar_window(app).await
+}
+
+#[command]
+pub async fn is_floating_toolbar_visible(app: tauri::AppHandle) -> Result<bool, String> {
+    snow_shot_tauri_commands_core::is_floating_toolbar_visible(app).await
+}

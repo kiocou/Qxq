@@ -21,6 +21,10 @@ export function useAppSettingsLoad(
 	const invokeOnLoadCore = useMemo(
 		() =>
 			debounce((settings: AppSettingsData) => {
+				// 同一引用（无实际变更）时跳过，避免页面重复执行 setFieldsValue 等重操作
+				if (preSettingsRef.current === settings) {
+					return;
+				}
 				onLoad(settings, preSettingsRef.current);
 				preSettingsRef.current = settings;
 			}, 0),
