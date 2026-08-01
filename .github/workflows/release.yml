@@ -183,7 +183,13 @@ jobs:
 
             # 构建 Excalidraw
             - name: Build Excalidraw
-              run: pnpm update:excalidraw
+              run: |
+                  rm -rf ../excalidraw/packages/excalidraw/dist
+                  cd ../excalidraw
+                  yarn build:packages
+                  cd "$GITHUB_WORKSPACE"
+                  pnpm update @mg-chao/excalidraw
+              shell: bash
 
             # 下载 offline 资源 (Windows offline only)
             - name: Download and setup offline resources
