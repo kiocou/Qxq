@@ -159,7 +159,7 @@ jobs:
               run: |
                   cd ../excalidraw
                   yarn install --frozen-lockfile
-                  cd ../snow-shot
+                  cd "$GITHUB_WORKSPACE"
               shell: bash
 
             # 创建 .env 文件以支持联网功能
