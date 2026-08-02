@@ -50,7 +50,15 @@ tsconfig.tsbuildinfo
 .npm-cache/
 .cache-backup-*/
 rsbuild-dev*.log
-tauri-dev.log
+tauri-dev*.log
+.codex-*.log
+
+# local release downloads
+release-assets/
+release-assets-v2/
+
+# working plans
+animation-plans/
 
 # updater signing key (private, never commit)
 qxq-updater.key

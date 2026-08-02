@@ -59,6 +59,7 @@ import { AppSettingsGroup } from "@/types/appSettings";
 import { appWarn } from "@/utils/log";
 import { ScreenshotType } from "@/utils/types";
 import { zIndexs } from "@/utils/zIndex";
+import { type DockSide, resolveToolbarPlacement } from "./geometry";
 
 const ICON_WINDOW_WIDTH = 80;
 const TOOLBAR_WIDTH = 264;
@@ -66,14 +67,20 @@ const TOOLBAR_HEIGHT = 80;
 const PANEL_HEIGHT = 220;
 const AUTO_HIDE_DELAY = 900;
 const AUTO_HIDE_VISIBLE_SIZE = 28;
-const EDGE_SNAP_THRESHOLD = 36;
-const TOOLBAR_ANIMATION_DURATION = 180;
-const WINDOW_MOVE_DEBOUNCE = 240;
+const TRANSITION_FALLBACK = 240;
+const DRAG_SETTLE_DELAY = 96;
+const PROGRAMMATIC_MOVE_GUARD = 240;
 /** 请求发出后等待绘制窗口确认开始；超时即恢复，避免事件丢失后永久隐藏 */
 const SCREENSHOT_START_TIMEOUT = 2000;
 
-type DockSide = "left" | "right";
 type ToolbarMode = "icon" | "toolbar" | "panel";
+type MotionPhase =
+	| "icon"
+	| "opening"
+	| "toolbar"
+	| "expanding"
+	| "panel"
+	| "collapsing";
 
 const ToolButton: React.FC<{
 	className: string;
@@ -107,6 +114,7 @@ export const FloatingToolbarPage: React.FC = () => {
 	const [openUpward, setOpenUpward] = useState(false);
 	const [autoHidden, setAutoHidden] = useState(false);
 	const [delaySeconds, setDelaySeconds] = useState(0);
+	const [motionPhase, setMotionPhase] = useState<MotionPhase>("icon");
 	const appWindowRef = useRef(getCurrentWindow());
 	const toolbarOpenRef = useRef(false);
 	const panelExpandedRef = useRef(false);
@@ -129,7 +137,24 @@ export const FloatingToolbarPage: React.FC = () => {
 	const programmaticMoveUntilRef = useRef(0);
 	const programmaticLayoutRef = useRef(false);
 	const programmaticLayoutIdRef = useRef(0);
+	const rectRequestRef = useRef<
+		| {
+				mode: ToolbarMode;
+				x: number;
+				y: number;
+				width: number;
+				height: number;
+				transitionId: number;
+				resolve: (applied: boolean) => void;
+		  }
+		| undefined
+	>(undefined);
+	const rectRequestRunningRef = useRef(false);
 	const transitionIdRef = useRef(0);
+	const motionPhaseRef = useRef<MotionPhase>("icon");
+	const quickBarRef = useRef<HTMLDivElement>(null);
+	const panelRef = useRef<HTMLDivElement>(null);
+	const transitionCleanupsRef = useRef(new Set<() => void>());
 	/** undefined 表示尚未主动设置过尺寸，首次调用必须真正执行 resize + 定位 */
 	const windowModeRef = useRef<ToolbarMode | undefined>(undefined);
 	/** 截图/绘制期间挂起工具栏，避免自身出现在结果里并抢占输入 */
@@ -176,6 +201,11 @@ export const FloatingToolbarPage: React.FC = () => {
 		[],
 	);
 
+	const updateMotionPhase = useCallback((phase: MotionPhase) => {
+		motionPhaseRef.current = phase;
+		setMotionPhase(phase);
+	}, []);
+
 	/** 获取显示器信息（带短时效缓存，动画期间避免重复 IPC） */
 	const getMonitorInfo = useCallback(async () => {
 		const now = Date.now();
@@ -206,34 +236,30 @@ export const FloatingToolbarPage: React.FC = () => {
 		return info;
 	}, []);
 
-	/** 等待 N 个渲染帧，与 CSS 动画帧同步，替代不精确的 setTimeout */
+	/** 原生窗口 resize 后等待一次合成，让浏览器观察到动画起始状态。 */
 	const waitForNextFrame = useCallback(
-		(transitionId: number, frames = 2) =>
+		(transitionId: number) =>
 			new Promise<boolean>((resolve) => {
-				let remaining = frames;
 				let settled = false;
+				let frame = 0;
+				let fallback: ReturnType<typeof setTimeout> | undefined;
 				const settle = (result: boolean) => {
 					if (settled) {
 						return;
 					}
 					settled = true;
+					cancelAnimationFrame(frame);
+					if (fallback) clearTimeout(fallback);
 					resolve(result);
 				};
-				const tick = () => {
+				frame = requestAnimationFrame(() => {
 					if (!isTransitionCurrent(transitionId)) {
 						settle(false);
 						return;
 					}
-					remaining -= 1;
-					if (remaining <= 0) {
-						settle(true);
-						return;
-					}
-					requestAnimationFrame(tick);
-				};
-				requestAnimationFrame(tick);
-				// 兜底：窗口隐藏时 rAF 暂停，避免流程卡死
-				setTimeout(() => settle(true), frames * 64 + 200);
+					settle(true);
+				});
+				fallback = setTimeout(() => settle(true), TRANSITION_FALLBACK);
 			}),
 		[isTransitionCurrent],
 	);
@@ -305,7 +331,7 @@ export const FloatingToolbarPage: React.FC = () => {
 				return true;
 			}
 
-			programmaticMoveUntilRef.current = Date.now() + WINDOW_MOVE_DEBOUNCE;
+			programmaticMoveUntilRef.current = Date.now() + PROGRAMMATIC_MOVE_GUARD;
 			await appWindowRef.current.setPosition(position);
 			return isTransitionCurrent(transitionId);
 		},
@@ -354,14 +380,20 @@ export const FloatingToolbarPage: React.FC = () => {
 				return false;
 			}
 			const workArea = monitorInfo.workArea;
-			const minY = workArea.position.y;
-			const maxY = workArea.position.y + workArea.size.height - size.height;
-			const minX = workArea.position.x;
-			const maxX = workArea.position.x + workArea.size.width - size.width;
-			const nextY = Math.min(
-				Math.max(preferredY ?? position.y, minY),
-				Math.max(minY, maxY),
-			);
+			const placement = resolveToolbarPlacement({
+				position: {
+					x: preferredX ?? position.x,
+					y: preferredY ?? position.y,
+				},
+				size,
+				workArea,
+				scaleFactor: monitorInfo.scaleFactor,
+				wasDocked: dockedRef.current,
+				targetWidth: size.width,
+				targetHeight: size.height,
+				dockSide: dockSideRef.current,
+				expandDirection: openUpwardRef.current ? "up" : "down",
+			});
 			const nextX = dockedRef.current
 				? getDockedX(
 						dockSideRef.current,
@@ -371,43 +403,87 @@ export const FloatingToolbarPage: React.FC = () => {
 						workArea.size.width,
 						monitorInfo.scaleFactor,
 					)
-				: Math.min(
-						Math.max(preferredX ?? position.x, minX),
-						Math.max(minX, maxX),
-					);
+				: placement.x;
 
-			return moveWindow(new PhysicalPosition(nextX, nextY), transitionId);
+			return moveWindow(new PhysicalPosition(nextX, placement.y), transitionId);
 		},
 		[getDockedX, getMonitorInfo, isTransitionCurrent, moveWindow],
 	);
 
-	const waitForToolbarAnimation = useCallback(
-		(transitionId: number) =>
+	const waitForTransformTransition = useCallback(
+		(element: HTMLElement | null, transitionId: number, fallbackMs: number) =>
 			new Promise<boolean>((resolve) => {
-				// 与 CSS transition 同帧步进，避免 setTimeout 受主线程负载影响产生停顿
-				const startedAt = performance.now();
 				let settled = false;
+				let timeout: ReturnType<typeof setTimeout>;
 				const settle = (result: boolean) => {
 					if (settled) {
 						return;
 					}
 					settled = true;
+					clearTimeout(timeout);
+					element?.removeEventListener("transitionend", onTransitionEnd);
+					transitionCleanupsRef.current.delete(cancel);
 					resolve(result);
 				};
-				const tick = () => {
-					if (!isTransitionCurrent(transitionId)) {
-						settle(false);
-						return;
+				const cancel = () => settle(false);
+				const onTransitionEnd = (event: TransitionEvent) => {
+					if (event.target === element && event.propertyName === "transform") {
+						settle(isTransitionCurrent(transitionId));
 					}
-					if (performance.now() - startedAt >= TOOLBAR_ANIMATION_DURATION) {
-						settle(true);
-						return;
-					}
-					requestAnimationFrame(tick);
 				};
-				requestAnimationFrame(tick);
-				// 兜底：窗口隐藏/最小化时 rAF 会暂停，用 setTimeout 保证流程不被卡死
-				setTimeout(() => settle(true), TOOLBAR_ANIMATION_DURATION + 200);
+				element?.addEventListener("transitionend", onTransitionEnd);
+				transitionCleanupsRef.current.add(cancel);
+				timeout = setTimeout(
+					() => settle(isTransitionCurrent(transitionId)),
+					fallbackMs,
+				);
+			}),
+		[isTransitionCurrent],
+	);
+
+	const requestWindowRect = useCallback(
+		(request: Omit<NonNullable<typeof rectRequestRef.current>, "resolve">) =>
+			new Promise<boolean>((resolve) => {
+				rectRequestRef.current?.resolve(false);
+				rectRequestRef.current = { ...request, resolve };
+				if (rectRequestRunningRef.current) return;
+
+				rectRequestRunningRef.current = true;
+				void (async () => {
+					while (rectRequestRef.current) {
+						const next = rectRequestRef.current;
+						rectRequestRef.current = undefined;
+						const layoutId = ++programmaticLayoutIdRef.current;
+						programmaticLayoutRef.current = true;
+						programmaticMoveUntilRef.current =
+							Date.now() + PROGRAMMATIC_MOVE_GUARD;
+						try {
+							await setFloatingToolbarWindowRect(
+								next.x,
+								next.y,
+								next.width,
+								next.height,
+							);
+							const current = isTransitionCurrent(next.transitionId);
+							if (current && !rectRequestRef.current) {
+								windowModeRef.current = next.mode;
+							}
+							next.resolve(current && !rectRequestRef.current);
+						} catch (error) {
+							next.resolve(false);
+							appWarn(
+								`[FloatingToolbarPage] Failed to set window rect: ${error}`,
+							);
+						} finally {
+							requestAnimationFrame(() => {
+								if (programmaticLayoutIdRef.current === layoutId) {
+									programmaticLayoutRef.current = false;
+								}
+							});
+						}
+					}
+					rectRequestRunningRef.current = false;
+				})();
 			}),
 		[isTransitionCurrent],
 	);
@@ -436,51 +512,46 @@ export const FloatingToolbarPage: React.FC = () => {
 				const logicalHeight = mode === "panel" ? PANEL_HEIGHT : TOOLBAR_HEIGHT;
 				const width = Math.round(logicalWidth * monitorInfo.scaleFactor);
 				const height = Math.round(logicalHeight * monitorInfo.scaleFactor);
-				const workArea = monitorInfo.workArea;
-				const minX = workArea.position.x;
-				const minY = workArea.position.y;
-				const maxX = workArea.position.x + workArea.size.width - width;
-				const maxY = workArea.position.y + workArea.size.height - height;
-				const preferredY =
-					openUpwardRef.current && previousSize.height !== height
-						? previousPosition.y + previousSize.height - height
-						: previousPosition.y;
-				const preferredX =
-					!dockedRef.current && dockSideRef.current === "right"
-						? previousPosition.x + previousSize.width - width
-						: previousPosition.x;
-				const x = dockedRef.current
-					? getDockedX(
-							dockSideRef.current,
-							autoHiddenRef.current && mode === "icon",
-							width,
-							workArea.position.x,
-							workArea.size.width,
-							monitorInfo.scaleFactor,
-						)
-					: Math.min(Math.max(preferredX, minX), Math.max(minX, maxX));
-				const y = Math.min(Math.max(preferredY, minY), Math.max(minY, maxY));
-
-				const layoutId = ++programmaticLayoutIdRef.current;
-				programmaticLayoutRef.current = true;
-				programmaticMoveUntilRef.current = Date.now() + WINDOW_MOVE_DEBOUNCE;
-				try {
-					await setFloatingToolbarWindowRect(x, y, width, height);
-					windowModeRef.current = mode;
-				} finally {
-					requestAnimationFrame(() => {
-						if (programmaticLayoutIdRef.current === layoutId) {
-							programmaticLayoutRef.current = false;
-						}
-					});
-				}
-				return isTransitionCurrent(transitionId);
+				const placement = resolveToolbarPlacement({
+					position: previousPosition,
+					size: previousSize,
+					workArea: monitorInfo.workArea,
+					scaleFactor: monitorInfo.scaleFactor,
+					wasDocked: dockedRef.current,
+					targetWidth: width,
+					targetHeight: height,
+					dockSide: dockSideRef.current,
+					expandDirection: openUpwardRef.current ? "up" : "down",
+				});
+				dockSideRef.current = placement.dockSide;
+				openUpwardRef.current = placement.expandDirection === "up";
+				setDockSide(placement.dockSide);
+				setOpenUpward(placement.expandDirection === "up");
+				const x =
+					dockedRef.current && autoHiddenRef.current && mode === "icon"
+						? getDockedX(
+								dockSideRef.current,
+								true,
+								width,
+								monitorInfo.workArea.position.x,
+								monitorInfo.workArea.size.width,
+								monitorInfo.scaleFactor,
+							)
+						: placement.x;
+				return requestWindowRect({
+					mode,
+					x,
+					y: placement.y,
+					width,
+					height,
+					transitionId,
+				});
 			} catch (error) {
 				appWarn(`[FloatingToolbarPage] Failed to resize toolbar: ${error}`);
 				return false;
 			}
 		},
-		[getDockedX, getMonitorInfo, isTransitionCurrent],
+		[getDockedX, getMonitorInfo, isTransitionCurrent, requestWindowRect],
 	);
 
 	const showDockedIcon = useCallback(
@@ -518,12 +589,22 @@ export const FloatingToolbarPage: React.FC = () => {
 
 			// 等待原生窗口 resize 触发的重绘/合成稳定后再启动内容动画，
 			// 避免动画首帧被 resize 重绘抢占导致掉帧
-			if (!(await waitForNextFrame(transitionId, 2))) {
+			if (!(await waitForNextFrame(transitionId))) {
 				return false;
 			}
 
+			updateMotionPhase("opening");
 			toolbarOpenRef.current = true;
 			setToolbarOpen(true);
+			if (
+				await waitForTransformTransition(
+					quickBarRef.current,
+					transitionId,
+					TRANSITION_FALLBACK,
+				)
+			) {
+				updateMotionPhase("toolbar");
+			}
 			return true;
 		},
 		[
@@ -532,7 +613,9 @@ export const FloatingToolbarPage: React.FC = () => {
 			isTransitionCurrent,
 			resizeToolbar,
 			showDockedIcon,
+			updateMotionPhase,
 			waitForNextFrame,
+			waitForTransformTransition,
 		],
 	);
 
@@ -543,13 +626,27 @@ export const FloatingToolbarPage: React.FC = () => {
 			}
 
 			panelExpandedRef.current = false;
+			updateMotionPhase("collapsing");
 			setPanelExpanded(false);
-			if (!(await waitForToolbarAnimation(transitionId))) {
+			if (
+				!(await waitForTransformTransition(
+					panelRef.current,
+					transitionId,
+					TRANSITION_FALLBACK,
+				))
+			) {
 				return false;
 			}
-			return resizeToolbar("toolbar", transitionId);
+			const resized = await resizeToolbar("toolbar", transitionId);
+			if (resized) updateMotionPhase("toolbar");
+			return resized;
 		},
-		[isTransitionCurrent, resizeToolbar, waitForToolbarAnimation],
+		[
+			isTransitionCurrent,
+			resizeToolbar,
+			updateMotionPhase,
+			waitForTransformTransition,
+		],
 	);
 
 	const collapseToIcon = useCallback(
@@ -563,13 +660,28 @@ export const FloatingToolbarPage: React.FC = () => {
 			}
 
 			toolbarOpenRef.current = false;
+			updateMotionPhase("collapsing");
 			setToolbarOpen(false);
-			if (!(await waitForToolbarAnimation(transitionId))) {
+			if (
+				!(await waitForTransformTransition(
+					quickBarRef.current,
+					transitionId,
+					TRANSITION_FALLBACK,
+				))
+			) {
 				return false;
 			}
-			return resizeToolbar("icon", transitionId);
+			const resized = await resizeToolbar("icon", transitionId);
+			if (resized) updateMotionPhase("icon");
+			return resized;
 		},
-		[beginTransition, collapsePanel, resizeToolbar, waitForToolbarAnimation],
+		[
+			beginTransition,
+			collapsePanel,
+			resizeToolbar,
+			updateMotionPhase,
+			waitForTransformTransition,
+		],
 	);
 
 	const hideDockedIcon = useCallback(
@@ -618,6 +730,8 @@ export const FloatingToolbarPage: React.FC = () => {
 
 		return () => {
 			transitionIdRef.current += 1;
+			for (const cleanup of transitionCleanupsRef.current) cleanup();
+			transitionCleanupsRef.current.clear();
 			clearAutoHideTimer();
 		};
 	}, [beginTransition, clearAutoHideTimer, resizeToolbar, scheduleAutoHide]);
@@ -647,17 +761,26 @@ export const FloatingToolbarPage: React.FC = () => {
 							return;
 						}
 						const workArea = monitor.workArea;
-						const hasY = cache.floatingToolbarY >= 0;
-						const hasX = cache.floatingToolbarX >= 0;
+						const hasY = cache.floatingToolbarY !== -1;
+						const hasX = cache.floatingToolbarX !== -1;
 						const preferredY = hasY
 							? cache.floatingToolbarY
 							: workArea.position.y + Math.round(workArea.size.height * 0.25);
 						const preferredX = hasX ? cache.floatingToolbarX : undefined;
-						// 恢复后立即计算展开方向，避免第一次悬停时面板越界
+						// 恢复后立即按实际面板尺寸计算展开方向，避免第一次悬停时越界。
 						const size = await appWindowRef.current.outerSize();
-						openUpwardRef.current =
-							preferredY + size.height / 2 >
-							workArea.position.y + workArea.size.height / 2;
+						const placement = resolveToolbarPlacement({
+							position: { x: preferredX ?? workArea.position.x, y: preferredY },
+							size,
+							workArea,
+							scaleFactor: monitor.scaleFactor,
+							wasDocked: cache.floatingToolbarDocked,
+							targetWidth: Math.round(TOOLBAR_WIDTH * monitor.scaleFactor),
+							targetHeight: Math.round(PANEL_HEIGHT * monitor.scaleFactor),
+							dockSide: cache.floatingToolbarDockSide,
+							expandDirection: "down",
+						});
+						openUpwardRef.current = placement.expandDirection === "up";
 						setOpenUpward(openUpwardRef.current);
 						await placeWindowAtDock(
 							false,
@@ -853,24 +976,43 @@ export const FloatingToolbarPage: React.FC = () => {
 			if (!(await resizeToolbar("panel", transitionId))) {
 				return;
 			}
+			updateMotionPhase("expanding");
 			setPanelExpanded(true);
+			if (
+				await waitForTransformTransition(
+					panelRef.current,
+					transitionId,
+					TRANSITION_FALLBACK,
+				)
+			) {
+				updateMotionPhase("panel");
+			}
 			return;
 		}
 
+		updateMotionPhase("collapsing");
 		setPanelExpanded(false);
-		if (!(await waitForToolbarAnimation(transitionId))) {
+		if (
+			!(await waitForTransformTransition(
+				panelRef.current,
+				transitionId,
+				TRANSITION_FALLBACK,
+			))
+		) {
 			return;
 		}
 		if (!(await resizeToolbar("toolbar", transitionId))) {
 			return;
 		}
+		updateMotionPhase("toolbar");
 		scheduleAutoHide();
 	}, [
 		beginTransition,
 		openToolbar,
 		resizeToolbar,
 		scheduleAutoHide,
-		waitForToolbarAnimation,
+		updateMotionPhase,
+		waitForTransformTransition,
 	]);
 
 	const dockWindow = useCallback(async () => {
@@ -889,22 +1031,20 @@ export const FloatingToolbarPage: React.FC = () => {
 			if (!isTransitionCurrent(transitionId)) {
 				return;
 			}
-			const workArea = monitor.workArea;
-			const distanceToLeft = Math.abs(position.x - workArea.position.x);
-			const distanceToRight = Math.abs(
-				workArea.position.x + workArea.size.width - (position.x + size.width),
-			);
-			const snapThreshold = EDGE_SNAP_THRESHOLD * monitor.scaleFactor;
-			const nextDocked =
-				distanceToLeft <= snapThreshold || distanceToRight <= snapThreshold;
-			const nextDockSide: DockSide = nextDocked
-				? distanceToLeft <= distanceToRight
-					? "left"
-					: "right"
-				: "left";
-			const nextOpenUpward =
-				position.y + size.height / 2 >
-				workArea.position.y + workArea.size.height / 2;
+			const placement = resolveToolbarPlacement({
+				position,
+				size,
+				workArea: monitor.workArea,
+				scaleFactor: monitor.scaleFactor,
+				wasDocked: dockedRef.current,
+				targetWidth: Math.round(ICON_WINDOW_WIDTH * monitor.scaleFactor),
+				targetHeight: Math.round(TOOLBAR_HEIGHT * monitor.scaleFactor),
+				dockSide: dockSideRef.current,
+				expandDirection: openUpwardRef.current ? "up" : "down",
+			});
+			const nextDocked = placement.docked;
+			const nextDockSide = placement.dockSide;
+			const nextOpenUpward = placement.expandDirection === "up";
 
 			dockSideRef.current = nextDockSide;
 			dockedRef.current = nextDocked;
@@ -959,7 +1099,7 @@ export const FloatingToolbarPage: React.FC = () => {
 				}
 				moveDebounceTimerRef.current = setTimeout(() => {
 					void dockWindow();
-				}, WINDOW_MOVE_DEBOUNCE);
+				}, DRAG_SETTLE_DELAY);
 			})
 			.then((listener) => {
 				if (disposed) {
@@ -1031,13 +1171,18 @@ export const FloatingToolbarPage: React.FC = () => {
 			if (!isTransitionCurrent(transitionId)) {
 				return;
 			}
-			const workArea = monitor.workArea;
-			const distanceToLeft = Math.abs(position.x - workArea.position.x);
-			const distanceToRight = Math.abs(
-				workArea.position.x + workArea.size.width - (position.x + size.width),
-			);
-			const nextDockSide: DockSide =
-				distanceToLeft <= distanceToRight ? "left" : "right";
+			const placement = resolveToolbarPlacement({
+				position,
+				size,
+				workArea: monitor.workArea,
+				scaleFactor: monitor.scaleFactor,
+				wasDocked: true,
+				targetWidth: Math.round(ICON_WINDOW_WIDTH * monitor.scaleFactor),
+				targetHeight: Math.round(TOOLBAR_HEIGHT * monitor.scaleFactor),
+				dockSide: dockSideRef.current,
+				expandDirection: openUpwardRef.current ? "up" : "down",
+			});
+			const nextDockSide = placement.dockSide;
 
 			dockedRef.current = true;
 			dockSideRef.current = nextDockSide;
@@ -1078,13 +1223,13 @@ export const FloatingToolbarPage: React.FC = () => {
 				openUpward ? " ft-wrapper--open-up" : ""
 			}${docked ? "" : " ft-wrapper--floating"}${
 				autoHidden ? " ft-wrapper--auto-hidden" : ""
-			}`}
+			} ft-wrapper--phase-${motionPhase}`}
 			onContextMenu={(event) => event.preventDefault()}
 			onMouseEnter={onMouseEnter}
 			onMouseLeave={onMouseLeave}
 		>
 			<div className="ft-top-row">
-				<div className="ft-quick-bar">
+				<div className="ft-quick-bar" ref={quickBarRef}>
 					<ToolButton
 						className="ft-quick-btn"
 						icon={<ScissorOutlined />}
@@ -1129,7 +1274,10 @@ export const FloatingToolbarPage: React.FC = () => {
 				</div>
 			</div>
 
-			<div className={`ft-panel${panelExpanded ? " ft-panel--open" : ""}`}>
+			<div
+				className={`ft-panel${panelExpanded ? " ft-panel--open" : ""}`}
+				ref={panelRef}
+			>
 				<div className="ft-panel-grid">
 					<ToolButton
 						className="ft-panel-btn"
@@ -1206,8 +1354,13 @@ export const FloatingToolbarPage: React.FC = () => {
 						background: transparent !important;
 					}
 
-					.ft-wrapper {
-						position: fixed;
+			.ft-wrapper {
+				--ft-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+				--ft-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+				--ft-duration-fast: 120ms;
+				--ft-duration-enter: 180ms;
+				--ft-duration-move: 200ms;
+				position: fixed;
 					inset: 0;
 					z-index: ${zIndexs.FloatingToolbar};
 					box-sizing: border-box;
@@ -1221,7 +1374,7 @@ export const FloatingToolbarPage: React.FC = () => {
 						/* 窗口高度由原生 resize 控制，height transition 无意义且会与原生变化不同步；
 						 * contain 隔离重布局范围，降低动画期间的重绘成本 */
 						contain: layout paint;
-						transition: opacity 180ms ease;
+				transition: opacity var(--ft-duration-enter) var(--ft-ease-out);
 					}
 
 						.ft-wrapper--panel-expanded {
@@ -1266,21 +1419,26 @@ export const FloatingToolbarPage: React.FC = () => {
 							border-radius: 16px;
 						opacity: 0;
 						pointer-events: none;
-						will-change: transform, opacity;
-						transition: opacity ${TOOLBAR_ANIMATION_DURATION}ms ease,
-							transform ${TOOLBAR_ANIMATION_DURATION}ms
-								cubic-bezier(0.22, 1, 0.36, 1);
-					}
+				transition: opacity var(--ft-duration-enter) var(--ft-ease-out),
+					transform var(--ft-duration-enter) var(--ft-ease-out);
+			}
+
+			.ft-wrapper--phase-opening .ft-quick-bar,
+			.ft-wrapper--phase-collapsing .ft-quick-bar,
+			.ft-wrapper--phase-expanding .ft-panel,
+			.ft-wrapper--phase-collapsing .ft-panel {
+				will-change: transform, opacity;
+			}
 
 					.ft-wrapper--dock-right .ft-quick-bar {
 						right: 72px;
-						transform: translateX(26px) scale(0.74);
+				transform: translateX(26px) scale(0.9);
 						transform-origin: center right;
 					}
 
 					.ft-wrapper--dock-left .ft-quick-bar {
 						left: 72px;
-						transform: translateX(-26px) scale(0.74);
+				transform: translateX(-26px) scale(0.9);
 						transform-origin: center left;
 					}
 
@@ -1299,9 +1457,9 @@ export const FloatingToolbarPage: React.FC = () => {
 						height: 56px;
 							border-radius: 16px;
 						cursor: grab;
-						transition: opacity ${TOOLBAR_ANIMATION_DURATION}ms ease,
-							transform ${TOOLBAR_ANIMATION_DURATION}ms ease,
-							box-shadow ${TOOLBAR_ANIMATION_DURATION}ms ease;
+				transition: opacity var(--ft-duration-enter) var(--ft-ease-out),
+					transform var(--ft-duration-enter) var(--ft-ease-out),
+					box-shadow var(--ft-duration-enter) var(--ft-ease-out);
 					}
 
 					.ft-wrapper--dock-right .ft-logo {
@@ -1349,21 +1507,28 @@ export const FloatingToolbarPage: React.FC = () => {
 					padding: 0;
 						border-radius: 11px;
 						font-size: 22px;
-					transition: background 120ms ease, transform 120ms ease;
-				}
+				transition: background var(--ft-duration-fast) ease,
+					transform var(--ft-duration-fast) var(--ft-ease-out);
+			}
 
+			:global(.ft-quick-btn--active),
+			.ft-settings-btn:focus-visible {
+				background: ${token.colorFillSecondary};
+			}
+
+			@media (hover: hover) and (pointer: fine) {
 				:global(.ft-quick-btn:hover),
-				:global(.ft-quick-btn--active),
 				:global(.ft-panel-btn:hover),
 				.ft-settings-btn:hover {
 					background: ${token.colorFillSecondary};
 				}
+			}
 
 				:global(.ft-quick-btn:active),
 				:global(.ft-panel-btn:active),
 				:global(.ft-close-btn:active),
 				.ft-settings-btn:active {
-					transform: scale(0.92);
+				transform: scale(0.97);
 				}
 
 				/* 插件未就绪时保留按钮位置，仅降低可读性并禁用交互 */
@@ -1388,9 +1553,8 @@ export const FloatingToolbarPage: React.FC = () => {
 					pointer-events: none;
 					transform: translateY(-8px) scale(0.97);
 					transform-origin: top right;
-					will-change: transform, opacity;
-						transition: opacity 150ms ease,
-							transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+				transition: opacity var(--ft-duration-move) var(--ft-ease-in-out),
+					transform var(--ft-duration-move) var(--ft-ease-in-out);
 					}
 
 					.ft-wrapper--dock-left .ft-panel {
@@ -1430,7 +1594,8 @@ export const FloatingToolbarPage: React.FC = () => {
 					padding: 0;
 						border-radius: 10px;
 						font-size: 21px;
-					transition: background 120ms ease, transform 120ms ease;
+				transition: background var(--ft-duration-fast) ease,
+					transform var(--ft-duration-fast) var(--ft-ease-out);
 				}
 
 				.ft-panel-footer {
@@ -1450,7 +1615,8 @@ export const FloatingToolbarPage: React.FC = () => {
 					border-radius: 9px;
 					color: ${token.colorTextSecondary};
 						font-size: 12px;
-					transition: background 120ms ease, transform 120ms ease;
+				transition: background var(--ft-duration-fast) ease,
+					transform var(--ft-duration-fast) var(--ft-ease-out);
 				}
 
 				:global(.ft-close-btn) {
@@ -1461,14 +1627,36 @@ export const FloatingToolbarPage: React.FC = () => {
 					padding: 0;
 					border-radius: 9px;
 					font-size: 13px;
-					transition: color 120ms ease, background 120ms ease,
-						transform 120ms ease;
+				transition: color var(--ft-duration-fast) ease,
+					background var(--ft-duration-fast) ease,
+					transform var(--ft-duration-fast) var(--ft-ease-out);
 				}
 
+			@media (hover: hover) and (pointer: fine) {
 				:global(.ft-close-btn:hover) {
 					color: ${token.colorError};
 					background: ${token.colorErrorBg};
 				}
+			}
+
+			@media (prefers-reduced-motion: reduce) {
+				.ft-quick-bar,
+				.ft-logo,
+				.ft-panel {
+					transition: opacity var(--ft-duration-fast) ease,
+						background-color var(--ft-duration-fast) ease;
+					transform: none;
+					will-change: auto;
+				}
+
+				:global(.ft-quick-btn),
+				:global(.ft-panel-btn),
+				:global(.ft-close-btn),
+				.ft-settings-btn {
+					transition: color var(--ft-duration-fast) ease,
+						background-color var(--ft-duration-fast) ease;
+				}
+			}
 			`}</style>
 		</div>
 	);

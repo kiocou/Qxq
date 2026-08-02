@@ -37,6 +37,7 @@
 		"opener:allow-open-path",
 		"opener:default",
 		"log:default",
+		"os:default",
 		"store:default",
 		"clipboard-manager:allow-read-text",
 		"clipboard-manager:allow-read-image",
