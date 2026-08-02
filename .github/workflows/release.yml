@@ -5,7 +5,7 @@ name: Release CI
 # 指定此工作流的触发器
 on:
     push:
-        # 每次推送 main 分支代码，自动构建并发布新版本
+        # 每次推送 main 分支代码，自动构建并发布新版本（版本号自动递增）
         branches:
             - "main"
     workflow_dispatch:
