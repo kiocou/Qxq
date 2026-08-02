@@ -5,15 +5,20 @@ name: Release CI
 # 指定此工作流的触发器
 on:
     push:
-        # 匹配特定标签 (refs/tags)
-        tags:
-            - "v*" # 推送事件匹配 v*, 例如 v1.0，v20.15.10 等来触发工作流
+        # 每次推送 main 分支代码，自动构建并发布新版本
+        branches:
+            - "main"
     workflow_dispatch:
         inputs:
             version:
-                description: "Version (e.g. v1.0.0)"
-                required: true
+                description: "Version (e.g. v1.0.0), 留空则自动递增 patch 号"
+                required: false
                 type: string
+
+# 同一分支的发布流程串行执行，避免并发时版本号冲突
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
 
 jobs:
     create-release:
@@ -25,19 +30,43 @@ jobs:
               with:
                   fetch-depth: 0
 
+            # 确定版本号：手动输入优先；否则基于最新 vX.Y.Z tag 自动递增 patch
             - name: Set version
               id: vars
               run: |
-                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                  if [ -n "${{ inputs.version }}" ]; then
                     echo "tag=${{ inputs.version }}" >> $GITHUB_OUTPUT
                   else
-                    echo "tag=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
+                    latest=$(git tag -l --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+                    if [ -z "$latest" ]; then
+                      echo "tag=v0.1.0" >> $GITHUB_OUTPUT
+                    else
+                      major=$(echo "$latest" | sed 's/^v//' | cut -d. -f1)
+                      minor=$(echo "$latest" | cut -d. -f2)
+                      patch=$(echo "$latest" | cut -d. -f3)
+                      echo "tag=v${major}.${minor}.$((patch+1))" >> $GITHUB_OUTPUT
+                    fi
                   fi
               shell: bash
 
-            # 手动触发时创建 tag
-            - name: Create tag (if manual trigger)
-              if: github.event_name == 'workflow_dispatch'
+            # 检查 tag 是否已存在：自动触发时已发布过则停止；手动触发时允许复用重建
+            - name: Check tag existence
+              id: check_tag
+              run: |
+                  if git rev-parse -q --verify "refs/tags/${{ steps.vars.outputs.tag }}" >/dev/null; then
+                    echo "exists=true" >> $GITHUB_OUTPUT
+                    if [ "${{ github.event_name }}" = "push" ]; then
+                      echo "::error::Tag ${{ steps.vars.outputs.tag }} 已存在，请推送新的提交后重试"
+                      exit 1
+                    fi
+                  else
+                    echo "exists=false" >> $GITHUB_OUTPUT
+                  fi
+              shell: bash
+
+            # 创建并推送 tag（手动触发且 tag 已存在时跳过，直接复用重建）
+            - name: Create tag
+              if: steps.check_tag.outputs.exists == 'false'
               run: |
                   git config user.name github-actions
                   git config user.email github-actions@github.com
@@ -58,10 +87,14 @@ jobs:
 
             - name: Set app version output
               id: app_version
-              run: echo "version=${{ steps.vars.outputs.tag }}" >> $GITHUB_OUTPUT
+              run: |
+                  tag="${{ steps.vars.outputs.tag }}"
+                  echo "version=$tag" >> $GITHUB_OUTPUT
+                  echo "semver=${tag#v}" >> $GITHUB_OUTPUT
 
         outputs:
             app_version: ${{ steps.app_version.outputs.version }}
+            app_semver: ${{ steps.app_version.outputs.semver }}
 
     # 编译 Tauri 应用
     build-app:
@@ -342,7 +375,8 @@ jobs:
                   releaseBody: ""
                   releaseDraft: true
                   prerelease: false
-                  args: --target ${{ matrix.target }}
+                  # 动态覆盖 tauri.conf.json 版本号，保证安装包版本与发布 tag 一致
+                  args: --target ${{ matrix.target }} --config {"version":"${{ needs.create-release.outputs.app_semver }}"}
 
     # 更新 Release 下载引导
     update-release-notes:
@@ -357,10 +391,9 @@ jobs:
               with:
                   fetch-depth: 0
 
+            # 版本号以 create-release 计算出的 tag 为准（push 触发时 GITHUB_REF 不是 tag）
             - name: Set Environment Variables
-              run: |
-                  TAG_REF="${GITHUB_REF##*/}"
-                  echo "TAG_NAME=$TAG_REF" >> $GITHUB_ENV
+              run: echo "TAG_NAME=${{ needs.create-release.outputs.app_version }}" >> $GITHUB_ENV
               shell: bash
 
             - name: Generate Release Notes
