@@ -1,6 +1,7 @@
 # Snow Shot 项目 Release 自动构建工作流
 # 将显示在 GitHub 存储库的"操作"选项卡中的工作流名称
 name: Release CI
+run-name: Release CI (${{ github.event_name }})
 
 # 指定此工作流的触发器
 on:
