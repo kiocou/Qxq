@@ -1,0 +1,12 @@
+name: Trigger Test
+
+on:
+    push:
+        branches:
+            - "main"
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - run: echo "push trigger works, sha=${{ github.sha }}"
