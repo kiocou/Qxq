@@ -518,6 +518,17 @@ pub async fn get_monitors_bounding_box(
 
     let monitors_bounding_box = monitors.get_monitors_bounding_box();
 
+    // 显示器枚举瞬间可能返回全部无效（0 尺寸）显示器，
+    // 此时不能把 0x0 矩形透传给前端（否则前端会创建 0x0 截图窗口）
+    if monitors_bounding_box.max_x <= monitors_bounding_box.min_x
+        || monitors_bounding_box.max_y <= monitors_bounding_box.min_y
+    {
+        return Err(format!(
+            "[get_monitors_bounding_box] No valid monitor found, bounding box: {:?}",
+            monitors_bounding_box
+        ));
+    }
+
     Ok(MonitorsBoundingBox {
         rect: monitors_bounding_box,
         monitor_rect_list: monitors.monitor_rect_list(),

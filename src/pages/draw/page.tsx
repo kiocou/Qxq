@@ -597,13 +597,28 @@ const DrawPageCore: React.FC<{
 				undefined,
 				getAppSettings()[AppSettingsGroup.SystemScreenshot]
 					.enableMultipleMonitor,
-			),
+			).catch((error) => {
+				appError("[DrawPageCore] getMonitorsBoundingBox error", error);
+				return undefined;
+			}),
 			getMousePosition().catch((error) => {
 				appError("[DrawPageCore] getMousePosition error", error);
 				message.error(<FormattedMessage id="draw.getMousePositionError" />);
 				return [0, 0];
 			}),
 		]);
+
+		// 显示器信息无效（枚举瞬间异常可能返回 0x0），
+		// 提示错误并结束截图，避免创建 0x0 截图窗口
+		if (
+			!captureBoundingBox ||
+			captureBoundingBox.rect.max_x <= captureBoundingBox.rect.min_x ||
+			captureBoundingBox.rect.max_y <= captureBoundingBox.rect.min_y
+		) {
+			sendErrorMessage(intl.formatMessage({ id: "draw.captureError" }));
+			await finishCapture();
+			return;
+		}
 
 		const rTree = new Flatbush(captureBoundingBox.monitor_rect_list.length);
 		captureBoundingBox.monitor_rect_list.forEach(({ rect }) => {
@@ -631,7 +646,14 @@ const DrawPageCore: React.FC<{
 				captureBoundingBoxInfoRef.current.height,
 			),
 		]);
-	}, [getAppSettings, getScreenshotType, message, showWindow]);
+	}, [
+		finishCapture,
+		getAppSettings,
+		getScreenshotType,
+		intl,
+		message,
+		showWindow,
+	]);
 
 	const captureAllMonitorsAction = useCallback(
 		async (

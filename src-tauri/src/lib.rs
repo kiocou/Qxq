@@ -170,6 +170,24 @@ pub fn run() {
                 }
             }
 
+            // 设置高清窗口图标，保证任务栏图标清晰显示
+            #[cfg(target_os = "windows")]
+            {
+                if let Ok(resource_dir) = app.path().resource_dir() {
+                    let icon_path = resource_dir.join("app-icons").join("window-icon.png");
+                    match tauri::image::Image::from_path(&icon_path) {
+                        Ok(icon_image) => {
+                            if let Err(e) = main_window.set_icon(icon_image) {
+                                log::error!("[setup] set window icon error: {:?}", e);
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("[setup] load window icon error: {:?}", e);
+                        }
+                    }
+                }
+            }
+
             #[cfg(target_os = "macos")]
             {
                 // macOS 下不在 dock 显示

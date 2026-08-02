@@ -67,16 +67,23 @@ impl GraphicsCaptureApiHandler for WindowsCaptureImage {
 
         let orgin_image_buffer = origin_image.as_raw_buffer();
 
-        let (min_x, min_y, max_x, max_y) = if let Some(crop_area) = capture_info.crop_area {
-            (
-                crop_area.min_x,
-                crop_area.min_y,
-                crop_area.max_x,
-                crop_area.max_y,
-            )
-        } else {
-            (0, 0, origin_image_width as i32, origin_image_height as i32)
-        };
+        let (mut min_x, mut min_y, mut max_x, mut max_y) =
+            if let Some(crop_area) = capture_info.crop_area {
+                (
+                    crop_area.min_x,
+                    crop_area.min_y,
+                    crop_area.max_x,
+                    crop_area.max_y,
+                )
+            } else {
+                (0, 0, origin_image_width as i32, origin_image_height as i32)
+            };
+
+        // crop 区域钳位到原始图像范围内，防止异常 rect（越界/反向）导致越界读取或下溢 panic
+        min_x = min_x.max(0).min(origin_image_width as i32);
+        min_y = min_y.max(0).min(origin_image_height as i32);
+        max_x = max_x.clamp(min_x, origin_image_width as i32);
+        max_y = max_y.clamp(min_y, origin_image_height as i32);
 
         let origin_x_offset = min_x as usize;
         let origin_y_offset = min_y as usize;
@@ -245,6 +252,13 @@ fn process_captured_image(
             ));
         }
     };
+
+    if image_width == 0 || image_height == 0 {
+        return Err(format!(
+            "[windows_capture_image::process_captured_image] Captured image is zero-size: {}x{}",
+            image_width, image_height
+        ));
+    }
 
     let pixel_len = match color_format {
         ColorFormat::Rgb8 => 3,

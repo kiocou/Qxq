@@ -51,14 +51,30 @@ impl MonitorInfo {
 
         #[cfg(target_os = "windows")]
         {
-            let rect = monitor.get_dev_mode_w().unwrap();
-            monitor_rect = ElementRect {
-                min_x: unsafe { rect.Anonymous1.Anonymous2.dmPosition.x },
-                min_y: unsafe { rect.Anonymous1.Anonymous2.dmPosition.y },
-                max_x: unsafe { rect.Anonymous1.Anonymous2.dmPosition.x + rect.dmPelsWidth as i32 },
-                max_y: unsafe {
-                    rect.Anonymous1.Anonymous2.dmPosition.y + rect.dmPelsHeight as i32
-                },
+            // 显示器枚举瞬间（休眠唤醒、驱动重置等）可能返回无效模式，
+            // 失败或 0 尺寸时回退到 x()/y()/width()/height() API，避免 panic 或产生 0 尺寸 rect
+            monitor_rect = match monitor.get_dev_mode_w() {
+                Ok(rect) if rect.dmPelsWidth > 0 && rect.dmPelsHeight > 0 => {
+                    let position = unsafe { rect.Anonymous1.Anonymous2.dmPosition };
+                    ElementRect {
+                        min_x: position.x,
+                        min_y: position.y,
+                        max_x: position.x + rect.dmPelsWidth as i32,
+                        max_y: position.y + rect.dmPelsHeight as i32,
+                    }
+                }
+                _ => {
+                    let min_x = monitor.x().unwrap_or(0);
+                    let min_y = monitor.y().unwrap_or(0);
+                    let width = monitor.width().unwrap_or(0) as i32;
+                    let height = monitor.height().unwrap_or(0) as i32;
+                    ElementRect {
+                        min_x,
+                        min_y,
+                        max_x: min_x + width,
+                        max_y: min_y + height,
+                    }
+                }
             };
             scale_factor = monitor.scale_factor().unwrap_or(0.0);
 
@@ -284,7 +300,12 @@ impl MonitorList {
                     MonitorInfo::new(monitor)
                 }
             })
-            .filter(|monitor| monitor.rect.overlaps(&region))
+            .filter(|monitor| {
+                // 过滤掉无效显示器（枚举瞬间可能返回 0 尺寸 rect）
+                monitor.rect.overlaps(&region)
+                    && monitor.rect.max_x > monitor.rect.min_x
+                    && monitor.rect.max_y > monitor.rect.min_y
+            })
             .collect::<Vec<MonitorInfo>>();
 
         MonitorList(monitor_info_list)
@@ -317,6 +338,11 @@ impl MonitorList {
         let mut max_y = i32::MIN;
 
         for monitor in monitors {
+            // 跳过无效显示器（0 尺寸 rect），避免污染边界计算
+            if monitor.rect.max_x <= monitor.rect.min_x || monitor.rect.max_y <= monitor.rect.min_y
+            {
+                continue;
+            }
             if monitor.rect.min_x < min_x {
                 min_x = monitor.rect.min_x;
             }
@@ -441,17 +467,25 @@ impl MonitorList {
         let monitors_bounding_box = self.get_monitors_bounding_box();
 
         // 声明该图像，分配内存
+        // 注意：max(0) 防止异常 rect（max < min）转为 usize 时下溢 panic
         let (capture_image_width, capture_image_height) = if let Some(crop_region) = crop_region {
             (
-                (crop_region.max_x - crop_region.min_x) as usize,
-                (crop_region.max_y - crop_region.min_y) as usize,
+                (crop_region.max_x - crop_region.min_x).max(0) as usize,
+                (crop_region.max_y - crop_region.min_y).max(0) as usize,
             )
         } else {
             (
-                (monitors_bounding_box.max_x - monitors_bounding_box.min_x) as usize,
-                (monitors_bounding_box.max_y - monitors_bounding_box.min_y) as usize,
+                (monitors_bounding_box.max_x - monitors_bounding_box.min_x).max(0) as usize,
+                (monitors_bounding_box.max_y - monitors_bounding_box.min_y).max(0) as usize,
             )
         };
+
+        if capture_image_width == 0 || capture_image_height == 0 {
+            return Err(format!(
+                "[MonitorInfoList::capture] Invalid capture image size: {}x{}, monitors_bounding_box: {:?}",
+                capture_image_width, capture_image_height, monitors_bounding_box
+            ));
+        }
 
         let pixel_len = match capture_option.color_format {
             ColorFormat::Rgb8 => 3,

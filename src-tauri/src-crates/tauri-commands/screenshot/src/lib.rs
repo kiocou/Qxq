@@ -75,6 +75,15 @@ pub async fn capture_all_monitors(
         )
         .await?;
 
+        // 0 尺寸图直接报错，避免前端显示 0x0 图片
+        if image.width() == 0 || image.height() == 0 {
+            return Err(format!(
+                "[capture_all_monitors] Captured image is zero-size: {}x{}",
+                image.width(),
+                image.height()
+            ));
+        }
+
         let image_buffer =
             snow_shot_app_utils::encode_image(&image, snow_shot_app_utils::ImageEncoder::Png);
 
@@ -670,6 +679,91 @@ pub struct CaptureFullScreenResult {
     monitor_rect: ElementRect,
 }
 
+fn checked_crop_region(
+    region: ElementRect,
+    image_width: usize,
+    image_height: usize,
+) -> Result<(usize, usize, usize, usize), String> {
+    if region.min_x < 0
+        || region.min_y < 0
+        || region.max_x <= region.min_x
+        || region.max_y <= region.min_y
+    {
+        return Err(format!(
+            "[capture_full_screen] Invalid active monitor crop region: {:?}",
+            region
+        ));
+    }
+
+    let min_x = region.min_x as usize;
+    let min_y = region.min_y as usize;
+    let max_x = region.max_x as usize;
+    let max_y = region.max_y as usize;
+
+    if max_x > image_width || max_y > image_height {
+        return Err(format!(
+            "[capture_full_screen] Active monitor crop region out of bounds: region {:?}, image size {}x{}",
+            region, image_width, image_height
+        ));
+    }
+
+    Ok((min_x, min_y, max_x - min_x, max_y - min_y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::checked_crop_region;
+    use snow_shot_app_shared::ElementRect;
+
+    #[test]
+    fn rejects_negative_crop_origin() {
+        let region = ElementRect {
+            min_x: -1,
+            min_y: 0,
+            max_x: 10,
+            max_y: 10,
+        };
+
+        assert!(checked_crop_region(region, 100, 100).is_err());
+    }
+
+    #[test]
+    fn rejects_reversed_crop_region() {
+        let region = ElementRect {
+            min_x: 20,
+            min_y: 10,
+            max_x: 10,
+            max_y: 20,
+        };
+
+        assert!(checked_crop_region(region, 100, 100).is_err());
+    }
+
+    #[test]
+    fn rejects_crop_region_outside_image() {
+        let region = ElementRect {
+            min_x: 90,
+            min_y: 90,
+            max_x: 101,
+            max_y: 100,
+        };
+
+        assert!(checked_crop_region(region, 100, 100).is_err());
+    }
+
+    #[test]
+    fn returns_origin_and_size_for_valid_crop_region() {
+        let region = ElementRect {
+            min_x: 10,
+            min_y: 20,
+            max_x: 40,
+            max_y: 60,
+        };
+
+        assert_eq!(checked_crop_region(region, 100, 100), Ok((10, 20, 30, 40)));
+    }
+}
+
 /**
  * 捕获全屏
  */
@@ -727,12 +821,16 @@ where
         max_y: active_monitor_rect.max_y - all_monitors_bounding_box.min_y,
     };
 
-    let active_monitor_crop_region_x = active_monitor_crop_region.min_x as usize;
-    let active_monitor_crop_region_y = active_monitor_crop_region.min_y as usize;
-    let active_monitor_crop_region_width =
-        (active_monitor_crop_region.max_x - active_monitor_crop_region.min_x) as usize;
-    let active_monitor_crop_region_height =
-        (active_monitor_crop_region.max_y - active_monitor_crop_region.min_y) as usize;
+    let (
+        active_monitor_crop_region_x,
+        active_monitor_crop_region_y,
+        active_monitor_crop_region_width,
+        active_monitor_crop_region_height,
+    ) = checked_crop_region(
+        active_monitor_crop_region,
+        all_monitors_image.width() as usize,
+        all_monitors_image.height() as usize,
+    )?;
 
     let mut active_monitor_image_bytes = unsafe {
         let mut bytes = Vec::with_capacity(
@@ -743,6 +841,7 @@ where
     };
 
     let all_monitor_image_width = all_monitors_image.width() as usize;
+
     let base_index =
         (active_monitor_crop_region_y * all_monitor_image_width + active_monitor_crop_region_x) * 3;
 

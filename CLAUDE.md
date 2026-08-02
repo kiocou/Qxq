@@ -4,7 +4,7 @@
 
 Qxq 是一款基于 Tauri v2 的跨平台截图工具（Windows / macOS），追求简单高效的使用体验。
 
-- **版本**: 0.7.9-beta
+- **版本**: 0.8.0
 - **标识符**: com.chao.qxq
 - **仓库**: https://github.com/mg-chao/qxq
 - **许可证**: GPL-3.0（双许可：Commercial / NonCommercial）

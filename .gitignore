@@ -52,3 +52,6 @@ tsconfig.tsbuildinfo
 rsbuild-dev*.log
 tauri-dev.log
 
+# updater signing key (private, never commit)
+qxq-updater.key
+
