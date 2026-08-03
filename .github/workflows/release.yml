@@ -37,14 +37,33 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          releases_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100")"
+
           if [[ -n "$REQUESTED_VERSION" ]]; then
             tag="$REQUESTED_VERSION"
           else
-            current_tag="$(git tag --points-at "$GITHUB_SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
-            if [[ -n "$current_tag" ]]; then
-              tag="$current_tag"
+            reusable_tag="$(
+              jq -r --arg sha "$GITHUB_SHA" \
+                '.[] | select(.draft == true and .target_commitish == $sha) | .tag_name' \
+                <<< "$releases_json" \
+                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+                | sort -V \
+                | tail -n 1 \
+                || true
+            )"
+            if [[ -n "$reusable_tag" ]]; then
+              tag="$reusable_tag"
             else
-              latest="$(git tag --list | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)"
+              latest="$(
+                {
+                  git tag --list
+                  jq -r '.[].tag_name' <<< "$releases_json"
+                } \
+                  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+                  | sort -Vu \
+                  | tail -n 1 \
+                  || true
+              )"
               if [[ -z "$latest" ]]; then
                 tag="v0.1.0"
               else
@@ -58,13 +77,15 @@ jobs:
             echo "::error::Invalid version '$tag'; expected vMAJOR.MINOR.PATCH"
             exit 1
           fi
-          if gh release view "$tag" >/dev/null 2>&1; then
-            is_draft="$(gh release view "$tag" --json isDraft --jq .isDraft)"
-            tag_sha="$(git rev-list -n 1 "$tag")"
-            if [[ "$is_draft" == "true" && "$tag_sha" == "$GITHUB_SHA" ]]; then
+
+          existing_release="$(jq -c --arg tag "$tag" '.[] | select(.tag_name == $tag)' <<< "$releases_json" | head -n 1)"
+          if [[ -n "$existing_release" ]]; then
+            is_draft="$(jq -r '.draft' <<< "$existing_release")"
+            target_commitish="$(jq -r '.target_commitish' <<< "$existing_release")"
+            if [[ "$is_draft" == "true" && "$target_commitish" == "$GITHUB_SHA" ]]; then
               echo "reuse=true" >> "$GITHUB_OUTPUT"
             else
-              echo "::error::Release $tag already exists and cannot be safely reused"
+              echo "::error::Release $tag already exists for '$target_commitish' and cannot be safely reused for '$GITHUB_SHA'"
               exit 1
             fi
           else
