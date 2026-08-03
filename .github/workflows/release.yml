@@ -298,18 +298,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          assets="$(gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
           standard="Qxq_${SEMVER}_windows-x64_setup.exe"
+          download_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${standard}"
+
+          mkdir release-check
+          gh release download "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir release-check
+          jq --arg url "$download_url" '
+            .platforms["windows-x86_64"].url = $url |
+            if .platforms["windows-x86_64-nsis"] then
+              .platforms["windows-x86_64-nsis"].url = $url
+            else
+              .
+            end
+          ' release-check/latest.json > release-check/latest.normalized.json
+          mv release-check/latest.normalized.json release-check/latest.json
+          gh release upload "$TAG_NAME" --repo "$GITHUB_REPOSITORY" release-check/latest.json --clobber
+
+          assets="$(gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
           grep -Fxq "$standard" <<< "$assets"
           grep -Fxq "${standard}.sig" <<< "$assets"
           grep -Fxq "latest.json" <<< "$assets"
 
-          mkdir release-check
-          gh release download "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir release-check
-          jq -e --arg version "$SEMVER" --arg suffix "/$standard" '
+          jq -e --arg version "$SEMVER" --arg url "$download_url" '
             .version == $version and
             (.platforms["windows-x86_64"].signature | length > 0) and
-            (.platforms["windows-x86_64"].url | endswith($suffix))
+            (.platforms["windows-x86_64"].url == $url) and
+            (.platforms["windows-x86_64-nsis"].url == $url)
           ' release-check/latest.json >/dev/null
 
       - name: Publish release
