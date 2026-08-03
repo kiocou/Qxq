@@ -229,7 +229,7 @@ impl UIElements {
 
                 match window.title() {
                     Ok(title) => {
-                        if title.eq("Shell Handwriting Canvas") || title.eq("Snow Shot - Draw") {
+                        if title.eq("Shell Handwriting Canvas") || title.eq("Qxq - Draw") {
                             return None;
                         }
 

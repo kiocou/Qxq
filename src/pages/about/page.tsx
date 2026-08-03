@@ -1,11 +1,6 @@
 "use client";
 
-import {
-	GithubOutlined,
-	MailOutlined,
-	MessageOutlined,
-	QqOutlined,
-} from "@ant-design/icons";
+import { GithubOutlined } from "@ant-design/icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Badge, Button, Divider, Space, Tag, Typography, theme } from "antd";
@@ -15,11 +10,13 @@ import { useIntl } from "react-intl";
 import { getLatestVersion } from "@/components/checkVersion";
 
 const { Title, Paragraph, Text } = Typography;
+const REPOSITORY_URL = "https://github.com/kiocou/Qxq";
+const RELEASES_URL = `${REPOSITORY_URL}/releases/latest`;
 
 export const AboutPage = () => {
 	const { token } = theme.useToken();
 	const intl = useIntl();
-	const [version, setVersion] = useState("0.1.3");
+	const [version, setVersion] = useState("0.8.0");
 	const [latestVersion, setLatestVersion] = useState<string>();
 
 	const inited = useRef(false);
@@ -29,13 +26,12 @@ export const AboutPage = () => {
 		}
 		inited.current = true;
 
-		const version = await getVersion();
-		setVersion(version);
-
-		const latestVersion = await getLatestVersion();
-		if (latestVersion) {
-			setLatestVersion(latestVersion);
-		}
+		const [currentVersion, latestVersion] = await Promise.all([
+			getVersion().catch(() => undefined),
+			getLatestVersion(),
+		]);
+		if (currentVersion) setVersion(currentVersion);
+		if (latestVersion) setLatestVersion(latestVersion);
 	}, []);
 
 	useEffect(() => {
@@ -73,7 +69,7 @@ export const AboutPage = () => {
 						}
 						style={{ display: "block", cursor: "pointer" }}
 						size="small"
-						onClick={() => openUrl("https://snowshot.top/")}
+						onClick={() => openUrl(RELEASES_URL)}
 					>
 						<div
 							style={{
@@ -104,7 +100,7 @@ export const AboutPage = () => {
 					<Tag color="blue">
 						<a
 							style={{ color: token.colorLink }}
-							onClick={() => openUrl("https://snowshot.top/")}
+							onClick={() => openUrl(RELEASES_URL)}
 						>
 							{intl.formatMessage({ id: "about.version" })} {version}
 						</a>
@@ -112,7 +108,7 @@ export const AboutPage = () => {
 					<Tag color="green">
 						<a
 							style={{ color: token.colorLink }}
-							onClick={() => openUrl("https://github.com/mg-chao")}
+							onClick={() => openUrl("https://github.com/kiocou")}
 						>
 							{intl.formatMessage({ id: "about.author" })}
 						</a>
@@ -167,35 +163,10 @@ export const AboutPage = () => {
 					<Button
 						type="primary"
 						icon={<GithubOutlined />}
-						onClick={() =>
-							openUrl("https://github.com/mg-chao/snow-shot/issues")
-						}
+						onClick={() => openUrl(`${REPOSITORY_URL}/issues`)}
 						block
 					>
 						{intl.formatMessage({ id: "about.contact.github" })}
-					</Button>
-					<Button
-						icon={<MessageOutlined />}
-						onClick={() =>
-							openUrl("https://space.bilibili.com/3546897042114689")
-						}
-						block
-					>
-						{intl.formatMessage({ id: "about.contact.bilibili" })}
-					</Button>
-					<Button
-						icon={<MailOutlined />}
-						onClick={() => openUrl("mailto:chao@mgchao.top")}
-						block
-					>
-						{intl.formatMessage({ id: "about.contact.email" })}
-					</Button>
-					<Button
-						icon={<QqOutlined />}
-						onClick={() => openUrl("https://qm.qq.com/q/w9B2gLdoYg")}
-						block
-					>
-						{intl.formatMessage({ id: "about.contact.qqGroup" })}
 					</Button>
 				</Space>
 			</div>

@@ -17,11 +17,11 @@ members = [
 ]
 
 [package]
-name = "snow-shot"
+name = "qxq"
 version = "0.8.0"
-description = "Simple and elegant screenshot tool"
-authors = ["mg-chao <chao@mgchao.top>"]
-repository = "https://github.com/mg-chao/snow-shot"
+description = "Qxq screenshot and productivity tool"
+authors = ["kiocou"]
+repository = "https://github.com/kiocou/Qxq"
 edition = "2024"
 rust-version = "1.90"
 

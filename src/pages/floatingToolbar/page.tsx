@@ -67,7 +67,7 @@ const TOOLBAR_HEIGHT = 80;
 const PANEL_HEIGHT = 220;
 const AUTO_HIDE_DELAY = 900;
 const AUTO_HIDE_VISIBLE_SIZE = 28;
-const TRANSITION_FALLBACK = 240;
+const TRANSITION_FALLBACK = 340;
 const DRAG_SETTLE_DELAY = 96;
 const PROGRAMMATIC_MOVE_GUARD = 240;
 /** 请求发出后等待绘制窗口确认开始；超时即恢复，避免事件丢失后永久隐藏 */
@@ -76,6 +76,7 @@ const SCREENSHOT_START_TIMEOUT = 2000;
 type ToolbarMode = "icon" | "toolbar" | "panel";
 type MotionPhase =
 	| "icon"
+	| "settling"
 	| "opening"
 	| "toolbar"
 	| "expanding"
@@ -152,6 +153,7 @@ export const FloatingToolbarPage: React.FC = () => {
 	const rectRequestRunningRef = useRef(false);
 	const transitionIdRef = useRef(0);
 	const motionPhaseRef = useRef<MotionPhase>("icon");
+	const topRowRef = useRef<HTMLDivElement>(null);
 	const quickBarRef = useRef<HTMLDivElement>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
 	const transitionCleanupsRef = useRef(new Set<() => void>());
@@ -439,6 +441,33 @@ export const FloatingToolbarPage: React.FC = () => {
 				);
 			}),
 		[isTransitionCurrent],
+	);
+
+	/** 原生窗口一次性吸附后，仅让合成层回弹，避免逐帧 IPC 改变窗口坐标。 */
+	const playDockSettle = useCallback(
+		async (transitionId: number) => {
+			if (!isTransitionCurrent(transitionId)) {
+				return false;
+			}
+
+			updateMotionPhase("settling");
+			if (!(await waitForNextFrame(transitionId))) {
+				return false;
+			}
+
+			updateMotionPhase("icon");
+			return waitForTransformTransition(
+				topRowRef.current,
+				transitionId,
+				TRANSITION_FALLBACK,
+			);
+		},
+		[
+			isTransitionCurrent,
+			updateMotionPhase,
+			waitForNextFrame,
+			waitForTransformTransition,
+		],
 	);
 
 	const requestWindowRect = useCallback(
@@ -1060,6 +1089,9 @@ export const FloatingToolbarPage: React.FC = () => {
 			if (!(await placeWindowAtDock(false, transitionId))) {
 				return;
 			}
+			if (!(await playDockSettle(transitionId))) {
+				return;
+			}
 			void savePosition();
 			scheduleAutoHide();
 		} catch (error) {
@@ -1071,6 +1103,7 @@ export const FloatingToolbarPage: React.FC = () => {
 		collapseToIcon,
 		isTransitionCurrent,
 		placeWindowAtDock,
+		playDockSettle,
 		savePosition,
 		scheduleAutoHide,
 	]);
@@ -1196,6 +1229,9 @@ export const FloatingToolbarPage: React.FC = () => {
 			if (!(await placeWindowAtDock(false, transitionId))) {
 				return;
 			}
+			if (!(await playDockSettle(transitionId))) {
+				return;
+			}
 			void savePosition();
 			scheduleAutoHide();
 		} catch (error) {
@@ -1207,6 +1243,7 @@ export const FloatingToolbarPage: React.FC = () => {
 		collapseToIcon,
 		isTransitionCurrent,
 		placeWindowAtDock,
+		playDockSettle,
 		savePosition,
 		scheduleAutoHide,
 	]);
@@ -1228,7 +1265,7 @@ export const FloatingToolbarPage: React.FC = () => {
 			onMouseEnter={onMouseEnter}
 			onMouseLeave={onMouseLeave}
 		>
-			<div className="ft-top-row">
+			<div className="ft-top-row" ref={topRowRef}>
 				<div className="ft-quick-bar" ref={quickBarRef}>
 					<ToolButton
 						className="ft-quick-btn"
@@ -1354,12 +1391,10 @@ export const FloatingToolbarPage: React.FC = () => {
 						background: transparent !important;
 					}
 
-			.ft-wrapper {
-				--ft-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-				--ft-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-				--ft-duration-fast: 120ms;
-				--ft-duration-enter: 180ms;
-				--ft-duration-move: 200ms;
+				.ft-wrapper {
+					--ft-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+					--ft-duration-spring: 260ms;
+					--ft-duration-press: 140ms;
 				position: fixed;
 					inset: 0;
 					z-index: ${zIndexs.FloatingToolbar};
@@ -1374,24 +1409,47 @@ export const FloatingToolbarPage: React.FC = () => {
 						/* 窗口高度由原生 resize 控制，height transition 无意义且会与原生变化不同步；
 						 * contain 隔离重布局范围，降低动画期间的重绘成本 */
 						contain: layout paint;
-				transition: opacity var(--ft-duration-enter) var(--ft-ease-out);
+					transition: opacity 120ms ease;
 					}
 
 						.ft-wrapper--panel-expanded {
 							height: ${PANEL_HEIGHT}px;
 					}
 
-					.ft-wrapper--auto-hidden {
-						opacity: 0.56;
-					}
-
-						.ft-top-row {
-							position: absolute;
-							top: 8px;
-							left: 0;
-							width: 100%;
-							height: 56px;
+						.ft-wrapper--auto-hidden {
+							opacity: 0.56;
 						}
+
+							.ft-top-row {
+								position: absolute;
+								top: 8px;
+								left: 0;
+								width: 100%;
+								height: 56px;
+								transform: translateX(0) scale(1);
+								transition: transform var(--ft-duration-spring) var(--ft-ease-spring);
+							}
+
+								.ft-wrapper--phase-settling .ft-top-row {
+									transition: none;
+									will-change: transform;
+								}
+
+								.ft-wrapper--dock-left .ft-top-row {
+									transform-origin: left center;
+								}
+
+								.ft-wrapper--dock-right .ft-top-row {
+									transform-origin: right center;
+								}
+
+							.ft-wrapper--dock-left.ft-wrapper--phase-settling .ft-top-row {
+								transform: translateX(-6px) scale(0.985);
+							}
+
+							.ft-wrapper--dock-right.ft-wrapper--phase-settling .ft-top-row {
+								transform: translateX(6px) scale(0.985);
+							}
 
 						.ft-wrapper--open-up .ft-top-row {
 							top: auto;
@@ -1419,8 +1477,8 @@ export const FloatingToolbarPage: React.FC = () => {
 							border-radius: 16px;
 						opacity: 0;
 						pointer-events: none;
-				transition: opacity var(--ft-duration-enter) var(--ft-ease-out),
-					transform var(--ft-duration-enter) var(--ft-ease-out);
+					transition: opacity var(--ft-duration-spring) var(--ft-ease-spring),
+						transform var(--ft-duration-spring) var(--ft-ease-spring);
 			}
 
 			.ft-wrapper--phase-opening .ft-quick-bar,
@@ -1432,13 +1490,13 @@ export const FloatingToolbarPage: React.FC = () => {
 
 					.ft-wrapper--dock-right .ft-quick-bar {
 						right: 72px;
-				transform: translateX(26px) scale(0.9);
+					transform: translateX(30px) scale(0.86);
 						transform-origin: center right;
 					}
 
 					.ft-wrapper--dock-left .ft-quick-bar {
 						left: 72px;
-				transform: translateX(-26px) scale(0.9);
+					transform: translateX(-30px) scale(0.86);
 						transform-origin: center left;
 					}
 
@@ -1456,10 +1514,9 @@ export const FloatingToolbarPage: React.FC = () => {
 						width: 56px;
 						height: 56px;
 							border-radius: 16px;
-						cursor: grab;
-				transition: opacity var(--ft-duration-enter) var(--ft-ease-out),
-					transform var(--ft-duration-enter) var(--ft-ease-out),
-					box-shadow var(--ft-duration-enter) var(--ft-ease-out);
+							cursor: grab;
+						transition: opacity var(--ft-duration-spring) var(--ft-ease-spring),
+							transform var(--ft-duration-spring) var(--ft-ease-spring);
 					}
 
 					.ft-wrapper--dock-right .ft-logo {
@@ -1470,8 +1527,12 @@ export const FloatingToolbarPage: React.FC = () => {
 						left: 8px;
 					}
 
-					.ft-wrapper--toolbar-open .ft-logo {
-						transform: scale(1.02);
+						.ft-wrapper--dock-left.ft-wrapper--toolbar-open .ft-logo {
+							transform: scale(1.045) rotate(1.5deg);
+						}
+
+						.ft-wrapper--dock-right.ft-wrapper--toolbar-open .ft-logo {
+							transform: scale(1.045) rotate(-1.5deg);
 					}
 
 					.ft-wrapper--auto-hidden .ft-logo {
@@ -1507,8 +1568,8 @@ export const FloatingToolbarPage: React.FC = () => {
 					padding: 0;
 						border-radius: 11px;
 						font-size: 22px;
-				transition: background var(--ft-duration-fast) ease,
-					transform var(--ft-duration-fast) var(--ft-ease-out);
+					transition: background 120ms ease,
+						transform var(--ft-duration-press) var(--ft-ease-spring);
 			}
 
 			:global(.ft-quick-btn--active),
@@ -1526,10 +1587,12 @@ export const FloatingToolbarPage: React.FC = () => {
 
 				:global(.ft-quick-btn:active),
 				:global(.ft-panel-btn:active),
-				:global(.ft-close-btn:active),
-				.ft-settings-btn:active {
-				transform: scale(0.97);
-				}
+					:global(.ft-close-btn:active),
+					.ft-settings-btn:active {
+					transition: background 120ms ease, color 120ms ease,
+						transform 100ms cubic-bezier(0.23, 1, 0.32, 1);
+					transform: scale(0.97);
+					}
 
 				/* 插件未就绪时保留按钮位置，仅降低可读性并禁用交互 */
 				:global(.ft-btn--disabled),
@@ -1551,10 +1614,10 @@ export const FloatingToolbarPage: React.FC = () => {
 						border-radius: 14px;
 					opacity: 0;
 					pointer-events: none;
-					transform: translateY(-8px) scale(0.97);
+						transform: translateY(-10px) scale(0.96);
 					transform-origin: top right;
-				transition: opacity var(--ft-duration-move) var(--ft-ease-in-out),
-					transform var(--ft-duration-move) var(--ft-ease-in-out);
+					transition: opacity var(--ft-duration-spring) var(--ft-ease-spring),
+						transform var(--ft-duration-spring) var(--ft-ease-spring);
 					}
 
 					.ft-wrapper--dock-left .ft-panel {
@@ -1566,7 +1629,7 @@ export const FloatingToolbarPage: React.FC = () => {
 					.ft-wrapper--open-up .ft-panel {
 						top: auto;
 						bottom: 72px;
-						transform: translateY(8px) scale(0.97);
+							transform: translateY(10px) scale(0.96);
 						transform-origin: bottom right;
 					}
 
@@ -1594,8 +1657,8 @@ export const FloatingToolbarPage: React.FC = () => {
 					padding: 0;
 						border-radius: 10px;
 						font-size: 21px;
-				transition: background var(--ft-duration-fast) ease,
-					transform var(--ft-duration-fast) var(--ft-ease-out);
+					transition: background 120ms ease,
+						transform var(--ft-duration-press) var(--ft-ease-spring);
 				}
 
 				.ft-panel-footer {
@@ -1615,8 +1678,8 @@ export const FloatingToolbarPage: React.FC = () => {
 					border-radius: 9px;
 					color: ${token.colorTextSecondary};
 						font-size: 12px;
-				transition: background var(--ft-duration-fast) ease,
-					transform var(--ft-duration-fast) var(--ft-ease-out);
+					transition: background 120ms ease,
+						transform var(--ft-duration-press) var(--ft-ease-spring);
 				}
 
 				:global(.ft-close-btn) {
@@ -1627,9 +1690,8 @@ export const FloatingToolbarPage: React.FC = () => {
 					padding: 0;
 					border-radius: 9px;
 					font-size: 13px;
-				transition: color var(--ft-duration-fast) ease,
-					background var(--ft-duration-fast) ease,
-					transform var(--ft-duration-fast) var(--ft-ease-out);
+					transition: color 120ms ease, background 120ms ease,
+						transform var(--ft-duration-press) var(--ft-ease-spring);
 				}
 
 			@media (hover: hover) and (pointer: fine) {
@@ -1639,23 +1701,27 @@ export const FloatingToolbarPage: React.FC = () => {
 				}
 			}
 
-			@media (prefers-reduced-motion: reduce) {
-				.ft-quick-bar,
-				.ft-logo,
-				.ft-panel {
-					transition: opacity var(--ft-duration-fast) ease,
-						background-color var(--ft-duration-fast) ease;
-					transform: none;
-					will-change: auto;
+				@media (prefers-reduced-motion: reduce) {
+					.ft-top-row,
+					.ft-quick-bar,
+					.ft-logo,
+					.ft-panel {
+						transition: opacity 120ms ease, background-color 120ms ease;
+						transform: none;
+						will-change: auto;
 				}
 
-				:global(.ft-quick-btn),
-				:global(.ft-panel-btn),
-				:global(.ft-close-btn),
-				.ft-settings-btn {
-					transition: color var(--ft-duration-fast) ease,
-						background-color var(--ft-duration-fast) ease;
-				}
+					:global(.ft-quick-btn),
+					:global(.ft-quick-btn:active),
+					:global(.ft-panel-btn),
+					:global(.ft-panel-btn:active),
+						:global(.ft-close-btn),
+						:global(.ft-close-btn:active),
+						.ft-settings-btn,
+						.ft-settings-btn:active {
+							transition: color 120ms ease, background-color 120ms ease;
+							transform: none;
+					}
 			}
 			`}</style>
 		</div>

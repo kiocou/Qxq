@@ -18,16 +18,29 @@ import { type AppSettingsData, AppSettingsGroup } from "@/types/appSettings";
 import { appError, appInfo } from "@/utils/log";
 import { getPlatform } from "@/utils/platform";
 
-const WEBSITE_URL = "https://snowshot.top/";
+const LATEST_RELEASE_API_URL =
+	"https://api.github.com/repos/kiocou/Qxq/releases/latest";
+
+interface GitHubLatestRelease {
+	tag_name?: string;
+}
 
 export const getLatestVersion = async () => {
-	const response = await fetch(`${WEBSITE_URL}latest-version.txt`);
-	if (!response.ok) {
-		appError("Failed to get latest version:", response.statusText);
+	try {
+		const response = await fetch(LATEST_RELEASE_API_URL, {
+			headers: { Accept: "application/vnd.github+json" },
+		});
+		if (!response.ok) {
+			appError("Failed to get latest Qxq release:", response.statusText);
+			return;
+		}
+
+		const release = (await response.json()) as GitHubLatestRelease;
+		return release.tag_name?.replace(/^v/, "");
+	} catch (error) {
+		appError("Failed to get latest Qxq release:", error);
 		return;
 	}
-
-	return (await response.text()).trim();
 };
 
 export const CheckVersion: React.FC = () => {

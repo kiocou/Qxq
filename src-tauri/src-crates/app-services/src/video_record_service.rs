@@ -598,14 +598,14 @@ impl VideoRecordService {
 
         // macOS avfoundation 格式的正则表达式
         // 格式: [AVFoundation indev @ 0x...] [info] [0] 设备名称
-        let device_regex = match Regex::new(r#"\[AVFoundation indev @ [^\]]+\]\s+\[info\]\s+\[(\d+)\]\s+(.+)"#)
-        {
-            Ok(regex) => regex,
-            Err(e) => {
-                log::error!("[get_device_info_list] Failed to create regex: {}", e);
-                return device_info_list;
-            }
-        };
+        let device_regex =
+            match Regex::new(r#"\[AVFoundation indev @ [^\]]+\]\s+\[info\]\s+\[(\d+)\]\s+(.+)"#) {
+                Ok(regex) => regex,
+                Err(e) => {
+                    log::error!("[get_device_info_list] Failed to create regex: {}", e);
+                    return device_info_list;
+                }
+            };
 
         // 检测当前正在解析的设备类型
         let mut current_device_type = DeviceType::Video;
