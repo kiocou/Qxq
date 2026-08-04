@@ -34,12 +34,46 @@ use snow_shot_app_shared::EnigoManager;
 use snow_shot_global_state::{CaptureState, ReadClipboardState, WebViewSharedBufferState};
 use snow_shot_plugin_service::plugin_service;
 
+pub fn is_auto_start<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    args.into_iter()
+        .any(|arg| arg.as_ref() == std::ffi::OsStr::new("--auto_start"))
+}
+
+fn reveal_main_window(main_window: &tauri::WebviewWindow) {
+    if let Err(error) = main_window.show() {
+        log::error!("[reveal_main_window] Failed to show main window: {error}");
+    }
+    if let Err(error) = main_window.unminimize() {
+        log::error!("[reveal_main_window] Failed to unminimize main window: {error}");
+    }
+    if let Err(error) = main_window.set_focus() {
+        log::error!("[reveal_main_window] Failed to focus main window: {error}");
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::is_auto_start;
+
+    #[test]
+    fn detects_auto_start_argument() {
+        assert!(is_auto_start(["qxq.exe", "--auto_start"]));
+        assert!(!is_auto_start(["qxq.exe"]));
+        assert!(!is_auto_start(["qxq.exe", "--capture"]));
+    }
+}
+
 #[cfg(feature = "dhat-heap")]
 pub static PROFILER: std::sync::LazyLock<Mutex<Option<dhat::Profiler>>> =
     std::sync::LazyLock::new(|| Mutex::new(None));
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let show_main_window_on_start = !is_auto_start(std::env::args_os());
     let ocr_instance = Mutex::new(OcrService::new());
     let video_record_service = Mutex::new(video_record_service::VideoRecordService::new());
     let hot_load_page_service = Arc::new(hot_load_page_service::HotLoadPageService::new());
@@ -115,10 +149,11 @@ pub fn run() {
         )
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            let app_window = app.get_webview_window("main").expect("no main window");
-            app_window.show().unwrap();
-            app_window.unminimize().unwrap();
-            app_window.set_focus().unwrap();
+            if let Some(main_window) = app.get_webview_window("main") {
+                reveal_main_window(&main_window);
+            } else {
+                log::error!("[single_instance] Main window is not ready");
+            }
         }))
         .plugin(tauri_plugin_macos_permissions::init())
         .plugin(tauri_plugin_opener::init())
@@ -155,7 +190,7 @@ pub fn run() {
                 })
                 .build(),
         )
-        .setup(|app| {
+        .setup(move |app| {
             let main_window = app
                 .get_webview_window("main")
                 .expect("[lib::setup] no main window");
@@ -218,10 +253,9 @@ pub fn run() {
                 }
             });
 
-            // 如果是调试模式，则显示窗口
-            #[cfg(debug_assertions)]
-            {
-                main_window.show().unwrap();
+            // 用户手动启动时立即显示主窗口；开机自启继续保持静默。
+            if show_main_window_on_start {
+                reveal_main_window(&main_window);
             }
 
             Ok(())

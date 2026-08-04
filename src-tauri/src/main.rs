@@ -36,8 +36,7 @@ fn main() {
 
     // 检测命令行参数是否包含 --auto_start
     // 如果是自动启动可能会失败，尝试延迟一段时间再启动
-    let args: Vec<String> = std::env::args().collect();
-    if args.contains(&"--auto_start".to_string()) {
+    if snow_shot_lib::is_auto_start(std::env::args_os()) {
         println!(
             "[main] --auto_start parameter detected, delaying {} seconds before starting",
             DELAY_SECONDS
