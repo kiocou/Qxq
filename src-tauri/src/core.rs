@@ -495,8 +495,8 @@ pub async fn set_window_rect(
 }
 
 #[command]
-pub async fn create_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
-    snow_shot_tauri_commands_core::create_floating_toolbar_window(app).await
+pub fn create_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
+    snow_shot_tauri_commands_core::create_floating_toolbar_window(app)
 }
 
 #[command]

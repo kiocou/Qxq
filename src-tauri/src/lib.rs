@@ -258,6 +258,11 @@ pub fn run() {
                 reveal_main_window(&main_window);
             }
 
+            // 悬浮工具栏跟随应用启动；创建失败不应阻止主程序继续运行。
+            if let Err(error) = core::create_floating_toolbar_window(app.handle().clone()) {
+                log::error!("[setup] Failed to create floating toolbar: {error}");
+            }
+
             Ok(())
         })
         .manage(ui_elements)

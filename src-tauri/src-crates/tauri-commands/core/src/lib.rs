@@ -1233,7 +1233,7 @@ pub async fn show_main_window(app: tauri::AppHandle, auto_hide: bool) -> Result<
 const FLOATING_TOOLBAR_LABEL: &str = "floating-toolbar";
 
 /// 创建浮动快捷工具栏窗口
-pub async fn create_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
+pub fn create_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), String> {
     // 复用已创建的 WebView，避免每次切换都重新加载前端和插件上下文。
     if let Some(window) = app.get_webview_window(FLOATING_TOOLBAR_LABEL) {
         window.show().map_err(|e| {
