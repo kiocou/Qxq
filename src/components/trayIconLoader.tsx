@@ -444,16 +444,16 @@ const TrayIconLoaderComponent = () => {
 					],
 					[],
 				),
-			{
-				id: `${appWindow.label}-screenshot-fullScreenDraw`,
-				text: intl.formatMessage({ id: "home.fullScreenDraw" }),
-				accelerator: disableShortcut
-					? undefined
-					: formatKey(shortcutKeys[AppFunction.FullScreenDraw].shortcutKey),
-				action: async () => {
-					createFullScreenDrawWindow();
+				{
+					id: `${appWindow.label}-screenshot-fullScreenDraw`,
+					text: intl.formatMessage({ id: "home.fullScreenDraw" }),
+					accelerator: disableShortcut
+						? undefined
+						: formatKey(shortcutKeys[AppFunction.FullScreenDraw].shortcutKey),
+					action: async () => {
+						createFullScreenDrawWindow();
+					},
 				},
-			},
 				{
 					id: `${appWindow.label}-toggle-floating-toolbar`,
 					text: intl.formatMessage({ id: "floatingToolbar.toggle" }),
@@ -461,12 +461,15 @@ const TrayIconLoaderComponent = () => {
 						try {
 							await toggleFloatingToolbarWindow();
 						} catch (error) {
-							appError("[TrayIconLoader] toggle floating toolbar failed", error);
+							appError(
+								"[TrayIconLoader] toggle floating toolbar failed",
+								error,
+							);
 						}
 					},
 				},
-			{
-				id: `${appWindow.label}-open-image-save-folder`,
+				{
+					id: `${appWindow.label}-open-image-save-folder`,
 					text: intl.formatMessage({ id: "home.openImageSaveFolder" }),
 					action: async () => {
 						openImageSaveFolder();

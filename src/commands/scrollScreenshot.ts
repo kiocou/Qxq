@@ -84,14 +84,13 @@ export const scrollScreenshotCapture = async (
 export const scrollScreenshotHandleImage = async (
 	thumbnailSize: number,
 ): Promise<ScrollScreenshotCaptureResult> => {
-	let result: ArrayBuffer | undefined;
+	let result: ArrayBuffer = new ArrayBuffer();
 	try {
 		result = await invoke<ArrayBuffer>("scroll_screenshot_handle_image", {
 			thumbnailSize,
 		});
 	} catch (error) {
 		appError("[scrollScreenshotHandleImage] error", error);
-		result = new ArrayBuffer();
 	}
 
 	if (result.byteLength === 0) {

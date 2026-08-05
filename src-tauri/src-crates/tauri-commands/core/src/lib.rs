@@ -170,7 +170,12 @@ pub async fn create_fixed_content_window(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let monitor_scale_factor = monitor.scale_factor().unwrap() as f64;
+        let monitor_scale_factor = monitor.scale_factor().map_err(|e| {
+            format!(
+                "[create_fixed_content_window] Failed to read monitor scale factor: {}",
+                e
+            )
+        })? as f64;
         window_x = monitor_x / monitor_scale_factor;
         window_y = monitor_y / monitor_scale_factor;
     }
@@ -268,10 +273,30 @@ pub async fn create_full_screen_draw_window(
 
     let (_, _, monitor) = get_target_monitor()?;
 
-    let monitor_x = monitor.x().unwrap() as f64;
-    let monitor_y = monitor.y().unwrap() as f64;
-    let monitor_width = monitor.width().unwrap() as f64;
-    let monitor_height = monitor.height().unwrap() as f64;
+    let monitor_x = monitor.x().map_err(|e| {
+        format!(
+            "[create_full_screen_draw_window] Failed to read monitor x: {}",
+            e
+        )
+    })? as f64;
+    let monitor_y = monitor.y().map_err(|e| {
+        format!(
+            "[create_full_screen_draw_window] Failed to read monitor y: {}",
+            e
+        )
+    })? as f64;
+    let monitor_width = monitor.width().map_err(|e| {
+        format!(
+            "[create_full_screen_draw_window] Failed to read monitor width: {}",
+            e
+        )
+    })? as f64;
+    let monitor_height = monitor.height().map_err(|e| {
+        format!(
+            "[create_full_screen_draw_window] Failed to read monitor height: {}",
+            e
+        )
+    })? as f64;
 
     // 先从服务中获取两个窗口（必须串行以避免竞态条件）
     let main_window_opt = hot_load_page_service.pop_page().await;
@@ -1218,14 +1243,22 @@ pub async fn show_main_window(app: tauri::AppHandle, auto_hide: bool) -> Result<
         let is_minimized = main_window.is_minimized().unwrap_or_default();
 
         if is_visible && !is_minimized {
-            main_window.hide().unwrap();
+            main_window
+                .hide()
+                .map_err(|e| format!("[show_main_window] Failed to hide window: {}", e))?;
             return Ok(());
         }
     }
 
-    main_window.show().unwrap();
-    main_window.unminimize().unwrap();
-    main_window.set_focus().unwrap();
+    main_window
+        .show()
+        .map_err(|e| format!("[show_main_window] Failed to show window: {}", e))?;
+    main_window
+        .unminimize()
+        .map_err(|e| format!("[show_main_window] Failed to unminimize window: {}", e))?;
+    main_window
+        .set_focus()
+        .map_err(|e| format!("[show_main_window] Failed to focus window: {}", e))?;
 
     Ok(())
 }
@@ -1247,14 +1280,34 @@ pub fn create_floating_toolbar_window(app: tauri::AppHandle) -> Result<(), Strin
 
     let (_, _, monitor) = get_target_monitor()?;
 
-    let monitor_x = monitor.x().unwrap() as f64;
-    let monitor_y = monitor.y().unwrap() as f64;
-    let monitor_width = monitor.width().unwrap() as f64;
+    let monitor_x = monitor.x().map_err(|e| {
+        format!(
+            "[create_floating_toolbar_window] Failed to read monitor x: {}",
+            e
+        )
+    })? as f64;
+    let monitor_y = monitor.y().map_err(|e| {
+        format!(
+            "[create_floating_toolbar_window] Failed to read monitor y: {}",
+            e
+        )
+    })? as f64;
+    let monitor_width = monitor.width().map_err(|e| {
+        format!(
+            "[create_floating_toolbar_window] Failed to read monitor width: {}",
+            e
+        )
+    })? as f64;
 
     #[cfg(target_os = "macos")]
     let monitor_scale_factor = 1.0f64;
     #[cfg(not(target_os = "macos"))]
-    let monitor_scale_factor = monitor.scale_factor().unwrap() as f64;
+    let monitor_scale_factor = monitor.scale_factor().map_err(|e| {
+        format!(
+            "[create_floating_toolbar_window] Failed to read monitor scale factor: {}",
+            e
+        )
+    })? as f64;
 
     // 窗口初始位置：屏幕右侧居中偏上
     let window_width = 80.0;

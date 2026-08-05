@@ -249,7 +249,9 @@ pub fn run() {
                         }
                     }
 
-                    window_clone.emit("on-hide-main-window", ()).unwrap();
+                    if let Err(e) = window_clone.emit("on-hide-main-window", ()) {
+                        log::error!("[setup] emit on-hide-main-window error: {:?}", e);
+                    }
                 }
             });
 

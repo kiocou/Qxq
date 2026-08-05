@@ -1016,11 +1016,12 @@ mod tests {
 
         println!("current_dir: {:?}", env::current_dir().unwrap());
 
+        let output_dir =
+            std::path::PathBuf::from(env::current_dir().unwrap()).join("../../test_output");
+        std::fs::create_dir_all(&output_dir).unwrap();
+
         image
-            .save(
-                std::path::PathBuf::from(env::current_dir().unwrap())
-                    .join("../../test_output/capture_multi_monitor.webp"),
-            )
+            .save(output_dir.join("capture_multi_monitor.webp"))
             .unwrap();
 
         println!("time: {:?}", instance.elapsed());
@@ -1113,11 +1114,12 @@ mod tests {
             .await
             .unwrap();
 
+        let output_dir =
+            std::path::PathBuf::from(env::current_dir().unwrap()).join("../../test_output");
+        std::fs::create_dir_all(&output_dir).unwrap();
+
         image
-            .save(
-                std::path::PathBuf::from(env::current_dir().unwrap())
-                    .join("../../test_output/capture_single_monitor.webp"),
-            )
+            .save(output_dir.join("capture_single_monitor.webp"))
             .unwrap();
 
         println!("time: {:?}", instance.elapsed());

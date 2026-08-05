@@ -45,7 +45,6 @@ import type { ElementRect } from "@/types/commands/screenshot";
 import { DrawState } from "@/types/draw";
 import { getCorrectHdrColorAlgorithm } from "@/utils/appSettings";
 import { appError, appWarn } from "@/utils/log";
-import { getPlatform } from "@/utils/platform";
 import { zIndexs } from "@/utils/zIndex";
 import { SubTools, type SubToolsActionType } from "../../subTools";
 
@@ -240,6 +239,7 @@ export const ScrollScreenshot: React.FC<{
 	const autoScrollThroughIntervalRef = useRef<NodeJS.Timeout | undefined>(
 		undefined,
 	);
+	const autoScrollRunningRef = useRef<boolean>(false);
 
 	const stopAutoScrollThrough = useCallback((clearDelay: number = 300) => {
 		if (autoScrollThroughIntervalRef.current) {
@@ -577,15 +577,24 @@ export const ScrollScreenshot: React.FC<{
 						await getCurrentWindow().setIgnoreCursorEvents(true);
 						pendingEnableAutoScrollThroughClickRef.current = false;
 						autoScrollThroughIntervalRef.current = setInterval(async () => {
-							await getCurrentWindow().setIgnoreCursorEvents(true);
-							await autoScrollThrough(
-								scrollDirectionRef.current === ScrollDirection.Horizontal
-									? "horizontal"
-									: "vertical",
-								getPlatform() === "windows" ? 1 : 1,
-							);
-							enableCursorEventsDebounce();
-							captureImageCore(ScrollImageList.Bottom);
+							if (autoScrollRunningRef.current) {
+								return;
+							}
+							autoScrollRunningRef.current = true;
+							try {
+								await autoScrollThrough(
+									scrollDirectionRef.current === ScrollDirection.Horizontal
+										? "horizontal"
+										: "vertical",
+									1,
+								);
+								enableCursorEventsDebounce();
+								captureImageCore(ScrollImageList.Bottom);
+							} catch (error) {
+								appError("[autoScrollThrough] interval error", error);
+							} finally {
+								autoScrollRunningRef.current = false;
+							}
 						}, 150);
 					}
 					setPendingEnableAutoScrollThroughClickRef.current = undefined;

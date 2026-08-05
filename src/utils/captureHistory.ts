@@ -238,51 +238,53 @@ export class CaptureHistory {
 		const validTime =
 			now - appSettings[AppSettingsGroup.SystemScreenshot].historyValidDuration;
 
+		const retainedFileNames = new Set<string>();
+
 		await Promise.all(
 			historyList.map(async ([id, item]) => {
 				if (item.create_ts > validTime) {
+					retainedFileNames.add(item.file_name);
+					if (item.capture_result_file_name) {
+						retainedFileNames.add(item.capture_result_file_name);
+					}
 					return;
 				}
 
-				await this.delete(id, item);
+				if (!(await this.delete(id, item))) {
+					retainedFileNames.add(item.file_name);
+					if (item.capture_result_file_name) {
+						retainedFileNames.add(item.capture_result_file_name);
+					}
+				}
 			}),
 		);
 
-		// 读取有效的图片文件名，比较文件夹里的文件名，删除文件夹里不存在的文件
-		const validImageFileNames = await this.store.entries().then((entries) => {
-			return entries
-				.flatMap(([, item]) => {
-					return [item.file_name, item.capture_result_file_name];
-				})
-				.filter((fileName) => fileName !== undefined);
-		});
 		try {
-			await retainDirFiles(
-				await getCaptureHistoryImageAbsPath(""),
-				validImageFileNames,
-			);
+			await retainDirFiles(await getCaptureHistoryImageAbsPath(""), [
+				...retainedFileNames,
+			]);
 		} catch (error) {
 			appWarn("[CaptureHistory] retain captureHistoryImagesDir failed", error);
 		}
 	}
 
-	async delete(id: string, item?: CaptureHistoryItem) {
+	async delete(id: string, item?: CaptureHistoryItem): Promise<boolean> {
 		if (!item) {
 			item = await this.store.get(id);
 		}
 
 		if (!item) {
-			return;
+			return true;
+		}
+
+		try {
+			await this.store.delete(id);
+		} catch (error) {
+			appWarn("[CaptureHistory] delete captureHistoryItem failed", error);
+			return false;
 		}
 
 		await Promise.all([
-			(async () => {
-				try {
-					await this.store.delete(id);
-				} catch (error) {
-					appWarn("[CaptureHistory] delete captureHistoryItem failed", error);
-				}
-			})(),
 			(async () => {
 				try {
 					await removeFile(await getCaptureHistoryImageAbsPath(item.file_name));
@@ -310,6 +312,8 @@ export class CaptureHistory {
 				}
 			})(),
 		]);
+
+		return true;
 	}
 
 	async clearAll() {

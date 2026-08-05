@@ -109,6 +109,18 @@ const MenuLayoutCore: React.FC<{ children: React.ReactNode }> = ({
 	);
 
 	useEffect(() => {
+		const settingsRoutePaths = [
+			"/settings/generalSettings",
+			"/settings/functionSettings",
+			"/settings/hotKeySettings",
+			"/settings/systemSettings",
+		];
+		for (const path of settingsRoutePaths) {
+			preloadRoute(path);
+		}
+	}, [preloadRoute]);
+
+	useEffect(() => {
 		const pending = pendingRoutePerfRef.current;
 		if (!pending || pending.path !== pathname) {
 			return;

@@ -83,7 +83,7 @@ export const SystemSettingsPage = () => {
 	const [screenshotForm] =
 		Form.useForm<AppSettingsData[AppSettingsGroup.SystemScreenshot]>();
 
-	const [appSettingsLoading, setAppSettingsLoading] = useState(true);
+	const [appSettingsLoading, setAppSettingsLoading] = useState(false);
 	useAppSettingsLoad(
 		useCallback(
 			(settings: AppSettingsData, preSettings?: AppSettingsData) => {

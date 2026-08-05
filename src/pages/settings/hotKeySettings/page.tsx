@@ -35,7 +35,7 @@ export const HotKeySettingsPage = () => {
 
 	const { updateAppSettings } = useContext(AppSettingsActionContext);
 
-	const [appSettingsLoading, setAppSettingsLoading] = useState(true);
+	const [appSettingsLoading, setAppSettingsLoading] = useState(false);
 
 	const [drawToolbarKeyEventForm] =
 		Form.useForm<AppSettingsData[AppSettingsGroup.DrawToolbarKeyEvent]>();

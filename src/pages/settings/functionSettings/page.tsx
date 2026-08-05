@@ -117,7 +117,7 @@ export const FunctionSettingsPage = () => {
 	const [functionGlobalShortcutForm] =
 		Form.useForm<AppSettingsData[AppSettingsGroup.FunctionGlobalShortcut]>();
 
-	const [appSettingsLoading, setAppSettingsLoading] = useState(true);
+	const [appSettingsLoading, setAppSettingsLoading] = useState(false);
 
 	useAppSettingsLoad(
 		useCallback(

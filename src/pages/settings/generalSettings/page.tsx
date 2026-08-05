@@ -69,7 +69,7 @@ export const GeneralSettingsPage = () => {
 	const [trayIconForm] =
 		Form.useForm<AppSettingsData[AppSettingsGroup.CommonTrayIcon]>();
 
-	const [appSettingsLoading, setAppSettingsLoading] = useStateRef(true);
+	const [appSettingsLoading, setAppSettingsLoading] = useStateRef(false);
 	useAppSettingsLoad(
 		useCallback(
 			(settings: AppSettingsData, preSettings?: AppSettingsData) => {
